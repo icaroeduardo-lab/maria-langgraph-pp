@@ -11,63 +11,110 @@ function novoChatId() {
 // chatId é obrigatório SEMPRE (produção e desenvolvimento) — só NODE_ENV=test
 // relaxa isso (gera UUID), pra facilitar teste sem precisar inventar chatId
 // toda hora. Rodando via `pnpm test`, NODE_ENV já vem "test" (ver package.json).
-test("POST /mensagem sem chatId, NODE_ENV=test → gera UUID como fallback, não rejeita com 400", async () => {
+test("POST /atendimentos sem chatId, NODE_ENV=test → 201 com UUID gerado, não rejeita com 400", async () => {
   const app = montarApp();
-  const res = await app.inject({ method: "POST", url: "/mensagem", payload: { mensagem: "oi" } });
-  assert.equal(res.statusCode, 200);
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
+  assert.equal(res.statusCode, 201);
   assert.equal(res.json().status, "em_andamento");
 });
 
-test("POST /mensagem sem chatId, FORA de NODE_ENV=test → 400 (obrigatório de verdade)", async () => {
+test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório de verdade)", async () => {
   const original = process.env.NODE_ENV;
   process.env.NODE_ENV = "development";
   try {
     const app = montarApp();
-    const res = await app.inject({ method: "POST", url: "/mensagem", payload: { mensagem: "oi" } });
+    const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
     assert.equal(res.statusCode, 400);
   } finally {
     process.env.NODE_ENV = original;
   }
 });
 
-test("1ª mensagem → pergunta sim_nao com opcoes, status em_andamento", async () => {
+test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.responder presente", async () => {
   const app = montarApp();
   const chatId = novoChatId();
-  const res = await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "oi" } });
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
   const body = res.json();
-  assert.equal(res.statusCode, 200);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.headers.location, `/atendimentos/${chatId}`);
   assert.equal(body.tipoResposta, "sim_nao");
   assert.deepEqual(body.opcoes, ["Sim", "Não"]);
   assert.equal(body.status, "em_andamento");
+  assert.equal(body._links.self.href, `/atendimentos/${chatId}`);
+  assert.equal(body._links.responder.href, `/atendimentos/${chatId}/respostas`);
+  assert.equal(body._links.responder.method, "POST");
 });
 
-test("resume com mesmo chatId continua a MESMA conversa (não reinicia)", async () => {
+test("GET /atendimentos/:chatId inexistente → 404", async () => {
+  const app = montarApp();
+  const res = await app.inject({ method: "GET", url: "/atendimentos/nao-existe-nunca-foi-criado" });
+  assert.equal(res.statusCode, 404);
+});
+
+test("GET /atendimentos/:chatId depois de criado → mesma pergunta pendente, sem avançar o fluxo", async () => {
   const app = montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "oi" } });
-  const res = await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "true" } });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  const res = await app.inject({ method: "GET", url: `/atendimentos/${chatId}` });
   const body = res.json();
+  assert.equal(res.statusCode, 200);
+  assert.match(body.resposta, /número do processo/);
+  assert.equal(body.status, "em_andamento");
+});
+
+test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async () => {
+  const app = montarApp();
+  const res = await app.inject({
+    method: "POST",
+    url: "/atendimentos/nunca-criado/respostas",
+    payload: { resposta: "true" },
+  });
+  assert.equal(res.statusCode, 409);
+});
+
+test("POST /atendimentos/:chatId/respostas continua a MESMA conversa (não reinicia)", async () => {
+  const app = montarApp();
+  const chatId = novoChatId();
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  const res = await app.inject({
+    method: "POST",
+    url: `/atendimentos/${chatId}/respostas`,
+    payload: { resposta: "true" },
+  });
+  const body = res.json();
+  assert.equal(res.statusCode, 200);
   assert.match(body.resposta, /Qual o número do processo/);
 });
 
-test("resume com mensagem 'false' funciona via HTTP (regressão do bug resume:boolean falsy)", async () => {
+test("resposta 'false' funciona (regressão do bug resume:boolean falsy)", async () => {
   const app = montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "oi" } });
-  const res = await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "false" } });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  const res = await app.inject({
+    method: "POST",
+    url: `/atendimentos/${chatId}/respostas`,
+    payload: { resposta: "false" },
+  });
   assert.equal(res.statusCode, 200);
   assert.match(res.json().resposta, /RG da pessoa presa/);
 });
 
-test("fluxo completo via HTTP: termina com status concluido, sem opcoes no final", async () => {
+test("fluxo completo: termina com status concluido, sem opcoes, sem _links.responder", async () => {
   const app = montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "oi" } });
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "false" } }); // sem processo
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "11111111111" } }); // RG
-  await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "true" } }); // confirma nome
-  const res = await app.inject({ method: "POST", url: "/mensagem", payload: { chatId, mensagem: "amigo" } }); // parentesco
+  const responder = (resposta: string) =>
+    app.inject({ method: "POST", url: `/atendimentos/${chatId}/respostas`, payload: { resposta } });
+
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  await responder("false"); // sem processo
+  await responder("11111111111"); // RG
+  await responder("true"); // confirma nome
+  const res = await responder("amigo"); // parentesco
   const body = res.json();
+
+  assert.equal(res.statusCode, 200);
   assert.equal(body.status, "concluido");
   assert.equal(body.opcoes, undefined);
+  assert.equal(body._links.responder, undefined, "concluído não deve oferecer link pra responder de novo");
+  assert.equal(body._links.self.href, `/atendimentos/${chatId}`);
 });

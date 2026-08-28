@@ -3,6 +3,67 @@ import Fastify from "fastify";
 import { Command } from "@langchain/langgraph";
 import { grafo } from "./graph.js";
 
+interface InterruptValue {
+  pergunta: string;
+  tipo: string;
+  opcoes?: string[];
+}
+
+interface Links {
+  self: { href: string };
+  responder?: { href: string; method: "POST" };
+}
+
+// Nível 3 de Richardson (HATEOAS): toda resposta carrega `_links` com as
+// próximas ações válidas dado o estado ATUAL — não fixo por rota. Enquanto
+// `em_andamento`, existe "responder"; concluído/handoff, só sobra "self"
+// (não tem mais o que fazer nesse atendimento pela API). O cliente decide o
+// que fazer olhando os links, não hardcoding regra de URL.
+function montarLinks(chatId: string, status: string): Links {
+  const links: Links = { self: { href: `/atendimentos/${chatId}` } };
+  if (status === "em_andamento") {
+    links.responder = { href: `/atendimentos/${chatId}/respostas`, method: "POST" };
+  }
+  return links;
+}
+
+interface RespostaAtendimento {
+  resposta: string;
+  tipoResposta: string;
+  opcoes?: string[];
+  status: string;
+  _links: Links;
+}
+
+// Compartilhado entre POST /atendimentos, GET /atendimentos/:chatId e
+// POST /atendimentos/:chatId/respostas — os 3 terminam no MESMO shape de
+// resposta, só muda como chegam no `interrupt`/`values`.
+function montarRespostaAtendimento(
+  chatId: string,
+  interrupt: InterruptValue | undefined,
+  values: { statusFinal?: string }
+): RespostaAtendimento {
+  if (interrupt) {
+    return {
+      resposta: interrupt.pergunta,
+      tipoResposta: interrupt.tipo,
+      opcoes: interrupt.opcoes,
+      status: "em_andamento",
+      _links: montarLinks(chatId, "em_andamento"),
+    };
+  }
+  const status = values.statusFinal ?? "concluido";
+  const mensagem =
+    status === "concluido"
+      ? "Show! Já confirmei os dados da pessoa presa. Vou seguir com o encaminhamento a partir daqui."
+      : "Não consegui confirmar os dados da pessoa presa. Vou encaminhar seu atendimento pra equipe verificar com mais calma.";
+  return { resposta: mensagem, tipoResposta: "texto", status, _links: montarLinks(chatId, status) };
+}
+
+function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
+  return (resultado as { __interrupt__?: Array<{ value: InterruptValue }> }).__interrupt__?.[0]?.value;
+}
+
 // Monta o Fastify sem chamar listen() — assim os testes usam app.inject()
 // direto, sem precisar subir servidor de verdade numa porta. Quem quer
 // rodar de verdade importa daqui e chama listen() (ver server.ts).
@@ -17,59 +78,83 @@ export function montarApp() {
   // sozinho não faz isso, é só por requisição individual).
   const app = Fastify({ logger: true, genReqId: () => randomUUID() });
 
-  app.post("/mensagem", async (req, reply) => {
-    const body = req.body as { chatId?: string; mensagem?: string };
-    // chatId é obrigatório SEMPRE (produção E desenvolvimento) — é a Tykhe
-    // quem manda, contrato real, sem gerar UUID escondido pra disfarçar um
-    // erro dela. Só NODE_ENV=test relaxa isso (gera UUID), pra facilitar
-    // teste automatizado/manual sem precisar inventar chatId toda hora —
-    // ver test/server.test.ts.
-    if (!body.chatId) {
-      if (process.env.NODE_ENV !== "test") {
-        return reply.code(400).send({ erro: "chatId obrigatório" });
-      }
+  // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
+  // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
+  // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera
+  // UUID), pra facilitar teste sem inventar chatId toda hora.
+  app.post("/atendimentos", async (req, reply) => {
+    const body = req.body as { chatId?: string } | undefined;
+    if (!body?.chatId && process.env.NODE_ENV !== "test") {
+      return reply.code(400).send({ erro: "chatId obrigatório" });
     }
-    const chatIdGerado = !body.chatId;
-    const chatId = body.chatId || randomUUID();
+    const chatIdGerado = !body?.chatId;
+    const chatId = body?.chatId || randomUUID();
     if (chatIdGerado) req.log.warn({ chatId }, "chatId ausente na requisição — gerado UUID (só permitido em NODE_ENV=test)");
+
+    const config = { configurable: { thread_id: chatId } };
+    req.log.info({ chatId }, "atendimento criado");
+    const resultado = await grafo.invoke({}, config);
+
+    const interrupt = extrairInterruptDoInvoke(resultado);
+    const { perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal } = resultado as {
+      perguntaParentescoViaIA?: boolean;
+      perguntaParentescoTokensTotal?: number;
+    };
+    req.log.info({ chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+
+    reply.code(201).header("Location", `/atendimentos/${chatId}`);
+    return montarRespostaAtendimento(chatId, interrupt, resultado as { statusFinal?: string });
+  });
+
+  // GET /atendimentos/:chatId — consulta o estado ATUAL, sem avançar nada
+  // (não chama invoke, só lê o checkpoint). 404 se esse chatId nunca foi
+  // criado (nunca teve um POST /atendimentos com esse id).
+  app.get("/atendimentos/:chatId", async (req, reply) => {
+    const { chatId } = req.params as { chatId: string };
+    const config = { configurable: { thread_id: chatId } };
+    const estado = await grafo.getState(config);
+    const interrupt = estado.tasks?.[0]?.interrupts?.[0]?.value as InterruptValue | undefined;
+    const valores = (estado.values ?? {}) as { statusFinal?: string };
+    const existe = !!interrupt || Object.keys(valores).length > 0;
+    if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
+    return montarRespostaAtendimento(chatId, interrupt, valores);
+  });
+
+  // POST /atendimentos/:chatId/respostas — envia uma resposta, avança o
+  // fluxo. 409 se esse chatId não existe ou já concluiu (não tem pergunta
+  // pendente esperando resposta) — HTTP status certo em vez de só um campo
+  // `status` no corpo, é a diferença entre nível 2 e nível 3 do REST.
+  app.post("/atendimentos/:chatId/respostas", async (req, reply) => {
+    const { chatId } = req.params as { chatId: string };
+    const body = req.body as { resposta?: string } | undefined;
 
     const config = { configurable: { thread_id: chatId } };
     const estadoAnterior = await grafo.getState(config);
     const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
-    req.log.info({ chatId, isResuming }, "mensagem recebida");
+    if (!isResuming) {
+      return reply.code(409).send({ erro: "atendimento não existe ou já foi concluído — nada esperando resposta" });
+    }
+    req.log.info({ chatId }, "resposta recebida");
 
     // resume sempre como string crua — pras perguntas sim_nao, a Tykhe manda
     // literalmente "true"/"false" (não texto em português), e o nó
     // (pedirTemProcesso/pedirConfirmaNome em graph.ts) compara === "true".
     // Nada de resume:boolean aqui — Command({resume:false}) quebra no
     // LangGraph (bug real, ver comentário em graph.ts).
-    const resultado = isResuming
-      ? await grafo.invoke(new Command({ resume: body.mensagem ?? "" }), config)
-      : await grafo.invoke({}, config);
+    const resultado = await grafo.invoke(new Command({ resume: body?.resposta ?? "" }), config);
 
-    const interrupt = (
-      resultado as { __interrupt__?: Array<{ value: { pergunta: string; tipo: string; opcoes?: string[] } }> }
-    ).__interrupt__?.[0]?.value;
-
+    const interrupt = extrairInterruptDoInvoke(resultado);
     if (interrupt) {
-      // perguntaParentescoViaIA/Tokens só existem no state depois que
-      // prepararPerguntaParentesco rodou (única pergunta reescrita por IA
-      // hoje) — undefined pras outras 5 perguntas, ainda fixas.
       const { perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal } = resultado as {
         perguntaParentescoViaIA?: boolean;
         perguntaParentescoTokensTotal?: number;
       };
       req.log.info({ chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
-      return { resposta: interrupt.pergunta, tipoResposta: interrupt.tipo, opcoes: interrupt.opcoes, status: "em_andamento" };
+    } else {
+      const status = (resultado as { statusFinal?: string }).statusFinal ?? "concluido";
+      req.log.info({ chatId, status }, "atendimento finalizado");
     }
-
-    const status = (resultado as { statusFinal?: string }).statusFinal ?? "concluido";
-    const mensagem =
-      status === "concluido"
-        ? "Show! Já confirmei os dados da pessoa presa. Vou seguir com o encaminhamento a partir daqui."
-        : "Não consegui confirmar os dados da pessoa presa. Vou encaminhar seu atendimento pra equipe verificar com mais calma.";
-    req.log.info({ chatId, status }, "conversa finalizada");
-    return { resposta: mensagem, tipoResposta: "texto", status };
+    return montarRespostaAtendimento(chatId, interrupt, resultado as { statusFinal?: string });
   });
 
   return app;
