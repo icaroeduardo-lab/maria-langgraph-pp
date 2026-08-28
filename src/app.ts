@@ -96,9 +96,9 @@ export function montarApp() {
     const resultado = await grafo.invoke({}, config);
 
     const interrupt = extrairInterruptDoInvoke(resultado);
-    const { perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal } = resultado as {
-      perguntaParentescoViaIA?: boolean;
-      perguntaParentescoTokensTotal?: number;
+    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+      perguntaAtualViaIA?: boolean;
+      perguntaAtualTokensTotal?: number;
     };
     req.log.info({ chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
 
@@ -145,9 +145,9 @@ export function montarApp() {
 
     const interrupt = extrairInterruptDoInvoke(resultado);
     if (interrupt) {
-      const { perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal } = resultado as {
-        perguntaParentescoViaIA?: boolean;
-        perguntaParentescoTokensTotal?: number;
+      const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+        perguntaAtualViaIA?: boolean;
+        perguntaAtualTokensTotal?: number;
       };
       req.log.info({ chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
     } else {

@@ -26,13 +26,16 @@ export const PessoaPresaState = Annotation.Root({
   querTentarNovamente: Annotation<boolean | undefined>,
   confirmaNome: Annotation<boolean | undefined>,
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
-  // texto já reescrito pela IA, gerado 1x num nó separado ANTES do nó que
-  // pausa em interrupt() — ver comentário em prepararPerguntaParentesco em
-  // graph.ts sobre por que não dá pra chamar a IA dentro do próprio nó que
-  // pausa (reexecuta o "antes do interrupt" a cada resume).
-  perguntaParentescoTexto: Annotation<string | undefined>,
-  // true = perguntaParentescoTexto veio da IA; false = a IA falhou e caiu no
+  // texto já reescrito pela IA da PRÓXIMA pergunta a pausar, gerado 1x num nó
+  // "preparar" SEPARADO logo antes do nó que pausa em interrupt() — ver
+  // prepararPergunta() em graph.ts pra saber por que não dá pra chamar a IA
+  // dentro do próprio nó que pausa (reexecuta o "antes do interrupt" a cada
+  // resume). Compartilhado entre TODAS as perguntas — só uma fica pendente
+  // por vez, não precisa de 1 campo por pergunta (o valor é sempre "a
+  // reescrita da pergunta que está prestes a pausar agora").
+  perguntaAtualTexto: Annotation<string | undefined>,
+  // true = perguntaAtualTexto veio da IA; false = a IA falhou e caiu no
   // texto fixo original (ver reescrever.ts) — log estruturado usa isso.
-  perguntaParentescoViaIA: Annotation<boolean | undefined>,
-  perguntaParentescoTokensTotal: Annotation<number | undefined>,
+  perguntaAtualViaIA: Annotation<boolean | undefined>,
+  perguntaAtualTokensTotal: Annotation<number | undefined>,
 });

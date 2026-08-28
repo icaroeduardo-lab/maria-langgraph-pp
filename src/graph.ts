@@ -21,55 +21,60 @@ async function criarCheckpointer(): Promise<BaseCheckpointSaver> {
   return saver;
 }
 
-
-// PROVA DE CONCEITO — só essa pergunta usa reescrita por IA por enquanto,
-// as outras 5 continuam com texto fixo até decidir expandir.
+// Todas as 6 perguntas seguem o MESMO padrão de 2 nós: um "preparar" (chama
+// a IA, roda 1x, escreve o texto pronto em perguntaAtual*) e um "pedir" (só
+// lê o que já foi escrito e pausa em interrupt()).
 //
-// 2 nós, não 1, de propósito: código ANTES de interrupt() no MESMO nó roda
-// de novo toda vez que aquela pausa é retomada (gotcha real do LangGraph —
-// "resume" replay o nó do início, interrupt() só some depois de já ter
+// Por quê 2 nós, não 1: código ANTES de interrupt() no MESMO nó roda de novo
+// toda vez que aquela pausa é retomada (gotcha real do LangGraph — "resume"
+// replay o nó do início; interrupt() só para de pausar depois de já ter
 // devolvido o valor uma vez). Se a chamada à IA tivesse dentro do nó que
 // pausa, ela rodaria de novo (gastando Bedrock à toa) em toda resposta.
-// Separando: prepararPerguntaParentesco roda 1x, escreve o texto pronto no
-// estado (isso SIM fica salvo no checkpoint, não se repete); pedirParentesco
-// só lê o que já foi escrito e pausa — barato de re-rodar.
-async function prepararPerguntaParentesco(): Promise<Partial<PessoaPresaStateType>> {
-  const { texto, viaIA, tokensTotal } = await reescreverPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
-  return { perguntaParentescoTexto: texto, perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal };
+//
+// Os campos perguntaAtualTexto/ViaIA/TokensTotal são COMPARTILHADOS entre
+// as 6 perguntas (não 1 campo por pergunta) — só uma fica pendente por vez,
+// o valor é sempre "a reescrita da pergunta que está prestes a pausar agora".
+async function prepararPergunta(campo: string, textoBase: string): Promise<Partial<PessoaPresaStateType>> {
+  const { texto, viaIA, tokensTotal } = await reescreverPergunta(campo, textoBase);
+  return { perguntaAtualTexto: texto, perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal };
 }
 
-export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
-  const resposta = interrupt<Pergunta, string>({
-    pergunta: state.perguntaParentescoTexto ?? "Qual seu parentesco com a pessoa presa?",
-    tipo: "texto",
-  });
-  return { parentesco: resposta };
+async function prepararPerguntaTemProcesso(): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta("temProcesso", "Você tem o número do processo da pessoa que está presa?");
 }
 
-async function pedirTemProcesso(): Promise<Partial<PessoaPresaStateType>> {
+async function pedirTemProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   // resume:boolean quebra no LangGraph quando o valor é `false` (bug real:
   // graph.invoke() trata resume falsy como "nenhum resume" — Command({resume:
   // false}) explode com "Received empty Command input"). Resume como string
   // "true"/"false" (a Tykhe manda literal isso, não texto em português).
   const resposta = interrupt<Pergunta, string>({
-    pergunta: "Você tem o número do processo da pessoa que está presa?",
+    pergunta: state.perguntaAtualTexto ?? "Você tem o número do processo da pessoa que está presa?",
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
   return { temProcesso: resposta === "true" };
 }
 
-async function pedirNumeroProcesso(): Promise<Partial<PessoaPresaStateType>> {
+async function prepararPerguntaNumeroProcesso(): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta("numeroProcesso", "Qual o número do processo? Informe apenas os números.");
+}
+
+async function pedirNumeroProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const resposta = interrupt<Pergunta, string>({
-    pergunta: "Qual o número do processo? Informe apenas os números.",
+    pergunta: state.perguntaAtualTexto ?? "Qual o número do processo? Informe apenas os números.",
     tipo: "texto",
   });
   return { numeroProcesso: resposta };
 }
 
-async function pedirRg(): Promise<Partial<PessoaPresaStateType>> {
+async function prepararPerguntaRg(): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta("rg", "Qual o RG da pessoa presa? Informe apenas os números.");
+}
+
+async function pedirRg(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const resposta = interrupt<Pergunta, string>({
-    pergunta: "Qual o RG da pessoa presa? Informe apenas os números.",
+    pergunta: state.perguntaAtualTexto ?? "Qual o RG da pessoa presa? Informe apenas os números.",
     tipo: "texto",
   });
   return { rg: resposta };
@@ -93,9 +98,18 @@ function depoisDeConsultarApenado(state: PessoaPresaStateType): "pedirConfirmaNo
   return "perguntaTentarNovamente";
 }
 
+async function prepararPerguntaTentarNovamente(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta(
+    "tentarNovamenteRg",
+    `Não encontrei ninguém com esse RG (tentativa ${state.tentativasRg ?? 1} de 3). Quer tentar de novo?`
+  );
+}
+
 async function perguntaTentarNovamente(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const resposta = interrupt<Pergunta, string>({
-    pergunta: `Não encontrei ninguém com esse RG (tentativa ${state.tentativasRg ?? 1} de 3). Quer tentar de novo?`,
+    pergunta:
+      state.perguntaAtualTexto ??
+      `Não encontrei ninguém com esse RG (tentativa ${state.tentativasRg ?? 1} de 3). Quer tentar de novo?`,
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
@@ -106,14 +120,31 @@ function depoisDePerguntaTentar(state: PessoaPresaStateType): "pedirRg" | "naoCo
   return state.querTentarNovamente ? "pedirRg" : "naoConfirmado";
 }
 
+async function prepararPerguntaConfirmaNome(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const nome = state.dadosApenado?.nome ?? "essa pessoa";
+  return prepararPergunta("confirmaNome", `Confirma que a pessoa presa é ${nome}?`);
+}
+
 async function pedirConfirmaNome(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const nome = state.dadosApenado?.nome ?? "essa pessoa";
   const resposta = interrupt<Pergunta, string>({
-    pergunta: `Confirma que a pessoa presa é ${nome}?`,
+    pergunta: state.perguntaAtualTexto ?? `Confirma que a pessoa presa é ${nome}?`,
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
   return { confirmaNome: resposta === "true" };
+}
+
+async function prepararPerguntaParentesco(): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
+}
+
+export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta: state.perguntaAtualTexto ?? "Qual seu parentesco com a pessoa presa?",
+    tipo: "texto",
+  });
+  return { parentesco: resposta };
 }
 
 async function concluir(): Promise<Partial<PessoaPresaStateType>> {
@@ -129,32 +160,42 @@ function depoisDeConfirmarNome(state: PessoaPresaStateType): "concluir" | "naoCo
 }
 
 const grafo = new StateGraph(PessoaPresaState)
-  .addNode("prepararPerguntaParentesco", prepararPerguntaParentesco)
-  .addNode("pedirParentesco", pedirParentesco)
+  .addNode("prepararPerguntaTemProcesso", prepararPerguntaTemProcesso)
   .addNode("pedirTemProcesso", pedirTemProcesso)
+  .addNode("prepararPerguntaNumeroProcesso", prepararPerguntaNumeroProcesso)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
+  .addNode("prepararPerguntaRg", prepararPerguntaRg)
   .addNode("pedirRg", pedirRg)
   .addNode("consultarApenado", consultarApenado)
+  .addNode("prepararPerguntaTentarNovamente", prepararPerguntaTentarNovamente)
   .addNode("perguntaTentarNovamente", perguntaTentarNovamente)
+  .addNode("prepararPerguntaConfirmaNome", prepararPerguntaConfirmaNome)
   .addNode("pedirConfirmaNome", pedirConfirmaNome)
+  .addNode("prepararPerguntaParentesco", prepararPerguntaParentesco)
+  .addNode("pedirParentesco", pedirParentesco)
   .addNode("concluir", concluir)
   .addNode("naoConfirmado", naoConfirmado)
-  .addEdge(START, "pedirTemProcesso")
+  .addEdge(START, "prepararPerguntaTemProcesso")
+  .addEdge("prepararPerguntaTemProcesso", "pedirTemProcesso")
   .addConditionalEdges("pedirTemProcesso", depoisDeTemProcesso, {
-    pedirNumeroProcesso: "pedirNumeroProcesso",
-    pedirRg: "pedirRg",
+    pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",
+    pedirRg: "prepararPerguntaRg",
   })
-  .addEdge("pedirNumeroProcesso", "pedirRg")
+  .addEdge("prepararPerguntaNumeroProcesso", "pedirNumeroProcesso")
+  .addEdge("pedirNumeroProcesso", "prepararPerguntaRg")
+  .addEdge("prepararPerguntaRg", "pedirRg")
   .addEdge("pedirRg", "consultarApenado")
   .addConditionalEdges("consultarApenado", depoisDeConsultarApenado, {
-    pedirConfirmaNome: "pedirConfirmaNome",
-    perguntaTentarNovamente: "perguntaTentarNovamente",
+    pedirConfirmaNome: "prepararPerguntaConfirmaNome",
+    perguntaTentarNovamente: "prepararPerguntaTentarNovamente",
     naoConfirmado: "naoConfirmado",
   })
+  .addEdge("prepararPerguntaTentarNovamente", "perguntaTentarNovamente")
   .addConditionalEdges("perguntaTentarNovamente", depoisDePerguntaTentar, {
-    pedirRg: "pedirRg",
+    pedirRg: "prepararPerguntaRg",
     naoConfirmado: "naoConfirmado",
   })
+  .addEdge("prepararPerguntaConfirmaNome", "pedirConfirmaNome")
   .addConditionalEdges("pedirConfirmaNome", depoisDeConfirmarNome, {
     concluir: "prepararPerguntaParentesco",
     naoConfirmado: "naoConfirmado",

@@ -34,7 +34,17 @@ export interface ResultadoReescrita {
 
 // Se a chamada à IA falhar (rede, credencial, throttling), cai no texto
 // original (`objetivoBase`) — nunca deixa a pergunta sumir por causa disso.
+//
+// NODE_ENV=test pula a chamada de verdade (mesmo padrão já usado pro chatId
+// em app.ts) — sem isso a suíte de testes fica lenta (2-6s por pergunta,
+// Bedrock real), gasta dinheiro à toa a cada `pnpm test`, E vira frágil
+// (texto reescrito varia entre execuções, quebra assert de texto fixo).
+// Testar a reescrita de verdade fica pra um teste isolado que força
+// NODE_ENV != "test" de propósito (ver test/reescrever.test.ts).
 export async function reescreverPergunta(campo: string, objetivoBase: string): Promise<ResultadoReescrita> {
+  if (process.env.NODE_ENV === "test") {
+    return { texto: objetivoBase, viaIA: false };
+  }
   try {
     // includeRaw:true devolve { raw, parsed } em vez de só o objeto parseado
     // — raw é a AIMessage crua, com usage_metadata (tokens de entrada/saída/
