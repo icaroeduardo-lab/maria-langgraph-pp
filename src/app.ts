@@ -174,6 +174,15 @@ export async function montarApp() {
         version: "0.1.0",
       },
       tags: [{ name: "atendimentos", description: "Ciclo de vida de um atendimento (thread do grafo)" }],
+      // declara o esquema de auth pro Swagger UI mostrar o botão "Authorize"
+      // — sem isso dá pra ver a rota no /docs mas não dá pra testar direto
+      // ali (ficaria sempre 401). Cada rota protegida marca `security` no
+      // próprio schema (ver abaixo) pra herdar esse esquema.
+      components: {
+        securitySchemes: {
+          bearerAuth: { type: "http", scheme: "bearer", description: "API_KEY — pedir no secret maria-langgraph-pp-prod/app" },
+        },
+      },
     },
   });
   await app.register(fastifySwaggerUi, { routePrefix: "/docs" });
@@ -203,6 +212,7 @@ export async function montarApp() {
     {
       schema: {
         tags: ["atendimentos"],
+        security: [{ bearerAuth: [] }],
         summary: "Cria um atendimento novo (1ª pergunta do fluxo)",
         body: {
           type: "object",
@@ -244,6 +254,7 @@ export async function montarApp() {
     {
       schema: {
         tags: ["atendimentos"],
+        security: [{ bearerAuth: [] }],
         summary: "Consulta o estado atual (sem avançar o fluxo)",
         params: { type: "object", properties: { chatId: { type: "string" } }, required: ["chatId"] },
         response: { 200: respostaAtendimentoSchema, 404: erroSchema },
@@ -270,6 +281,7 @@ export async function montarApp() {
     {
       schema: {
         tags: ["atendimentos"],
+        security: [{ bearerAuth: [] }],
         summary: "Envia uma resposta, avança o fluxo pra próxima pergunta (ou conclui)",
         params: { type: "object", properties: { chatId: { type: "string" } }, required: ["chatId"] },
         body: {
