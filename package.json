@@ -13,7 +13,7 @@
     "test": "cross-env NODE_ENV=test node --import tsx --test test/*.test.ts",
     "test:integracao": "node --import tsx --test test-integracao/*.test.ts",
     "studio": "npx @langchain/langgraph-cli dev",
-    "logs:prod": "aws logs tail /ecs/maria-langgraph-pp/api --follow --region us-east-1 | sed 's/^[^{]*//' | pino-pretty"
+    "logs:prod": "aws logs tail /ecs/maria-langgraph-pp/api --since 10m --follow --region us-east-1 | sed 's/^[^{]*//' | pino-pretty"
   },
   "dependencies": {
     "@fastify/swagger": "^9.8.1",
