@@ -12,7 +12,7 @@ function novoChatId() {
 // relaxa isso (gera UUID), pra facilitar teste sem precisar inventar chatId
 // toda hora. Rodando via `pnpm test`, NODE_ENV já vem "test" (ver package.json).
 test("POST /atendimentos sem chatId, NODE_ENV=test → 201 com UUID gerado, não rejeita com 400", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
   assert.equal(res.statusCode, 201);
   assert.equal(res.json().status, "em_andamento");
@@ -22,7 +22,7 @@ test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório
   const original = process.env.NODE_ENV;
   process.env.NODE_ENV = "development";
   try {
-    const app = montarApp();
+    const app = await montarApp();
     const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
     assert.equal(res.statusCode, 400);
   } finally {
@@ -31,7 +31,7 @@ test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório
 });
 
 test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.responder presente", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const chatId = novoChatId();
   const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
   const body = res.json();
@@ -46,13 +46,13 @@ test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.res
 });
 
 test("GET /atendimentos/:chatId inexistente → 404", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const res = await app.inject({ method: "GET", url: "/atendimentos/nao-existe-nunca-foi-criado" });
   assert.equal(res.statusCode, 404);
 });
 
 test("GET /atendimentos/:chatId depois de criado → mesma pergunta pendente, sem avançar o fluxo", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const chatId = novoChatId();
   await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
   const res = await app.inject({ method: "GET", url: `/atendimentos/${chatId}` });
@@ -63,7 +63,7 @@ test("GET /atendimentos/:chatId depois de criado → mesma pergunta pendente, se
 });
 
 test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const res = await app.inject({
     method: "POST",
     url: "/atendimentos/nunca-criado/respostas",
@@ -73,7 +73,7 @@ test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async
 });
 
 test("POST /atendimentos/:chatId/respostas continua a MESMA conversa (não reinicia)", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const chatId = novoChatId();
   await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
   const res = await app.inject({
@@ -87,7 +87,7 @@ test("POST /atendimentos/:chatId/respostas continua a MESMA conversa (não reini
 });
 
 test("resposta 'false' funciona (regressão do bug resume:boolean falsy)", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const chatId = novoChatId();
   await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
   const res = await app.inject({
@@ -100,7 +100,7 @@ test("resposta 'false' funciona (regressão do bug resume:boolean falsy)", async
 });
 
 test("fluxo completo: termina com status concluido, sem opcoes, sem _links.responder", async () => {
-  const app = montarApp();
+  const app = await montarApp();
   const chatId = novoChatId();
   const responder = (resposta: string) =>
     app.inject({ method: "POST", url: `/atendimentos/${chatId}/respostas`, payload: { resposta } });
