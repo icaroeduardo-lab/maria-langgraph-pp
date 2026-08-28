@@ -2,10 +2,16 @@
 FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
+# minimum-release-age (proteção supply-chain do pnpm recente) rejeita pacotes
+# publicados há poucas horas — o lockfile deste repo tem deps @langchain/aws
+# atualizadas no mesmo dia. Desliga só aqui (build), não é config local. Fica
+# no stage base pra valer em deps E build (cada stage tem seu próprio
+# $HOME/.npmrc, não herda do stage anterior só por COPY de node_modules).
+RUN pnpm config set minimum-release-age 0
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules

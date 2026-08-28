@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
+import fastifyBearerAuth from "@fastify/bearer-auth";
 import { Command } from "@langchain/langgraph";
 import { grafo } from "./graph.js";
 import type { DadosApenado } from "./state.js";
@@ -179,13 +180,25 @@ export async function montarApp() {
 
   // GET /health — health check do target group do ALB (ECS). Sem side
   // effect, não toca no grafo/banco — só confirma que o processo responde.
+  // Fica FORA do bloco protegido abaixo — o ALB não manda Bearer token.
   app.get("/health", { schema: { hide: true } }, async () => ({ status: "ok" }));
 
-  // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
-  // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
-  // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera
-  // UUID), pra facilitar teste sem inventar chatId toda hora.
-  app.post(
+  // Rotas de negócio, protegidas por Bearer token — Tykhe é o único
+  // consumidor esperado (chamada servidor-a-servidor). API_KEY obrigatório
+  // (sem default silencioso — erra alto na subida se não setado, nunca sobe
+  // a API "aberta" por engano). register() encapsulado: o hook de auth do
+  // @fastify/bearer-auth só se aplica às rotas declaradas AQUI dentro, não
+  // em /health nem /docs (fora deste bloco).
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API_KEY obrigatório (.env local ou secret em produção)");
+  await app.register(async (protegido) => {
+    await protegido.register(fastifyBearerAuth, { keys: new Set([apiKey]) });
+
+    // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
+    // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
+    // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera
+    // UUID), pra facilitar teste sem inventar chatId toda hora.
+    protegido.post(
     "/atendimentos",
     {
       schema: {
@@ -226,7 +239,7 @@ export async function montarApp() {
   // GET /atendimentos/:chatId — consulta o estado ATUAL, sem avançar nada
   // (não chama invoke, só lê o checkpoint). 404 se esse chatId nunca foi
   // criado (nunca teve um POST /atendimentos com esse id).
-  app.get(
+    protegido.get(
     "/atendimentos/:chatId",
     {
       schema: {
@@ -252,7 +265,7 @@ export async function montarApp() {
   // fluxo. 409 se esse chatId não existe ou já concluiu (não tem pergunta
   // pendente esperando resposta) — HTTP status certo em vez de só um campo
   // `status` no corpo, é a diferença entre nível 2 e nível 3 do REST.
-  app.post(
+    protegido.post(
     "/atendimentos/:chatId/respostas",
     {
       schema: {
@@ -301,6 +314,7 @@ export async function montarApp() {
     return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
+  });
 
   return app;
 }

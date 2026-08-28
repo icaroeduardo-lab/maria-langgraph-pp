@@ -8,12 +8,40 @@ function novoChatId() {
   return `teste-http-${contador}`;
 }
 
+// API_KEY vem do script "test" (package.json, cross-env) — mesma chave em
+// todo teste. AUTH é o header pronto pra reusar em todo app.inject() das
+// rotas protegidas (tudo em /atendimentos*, /health fica de fora).
+const AUTH = { authorization: `Bearer ${process.env.API_KEY}` };
+
+test("POST /atendimentos sem Authorization → 401", async () => {
+  const app = await montarApp();
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
+  assert.equal(res.statusCode, 401);
+});
+
+test("POST /atendimentos com chave errada → 401", async () => {
+  const app = await montarApp();
+  const res = await app.inject({
+    method: "POST",
+    url: "/atendimentos",
+    payload: {},
+    headers: { authorization: "Bearer chave-errada" },
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /health não exige Authorization (health check do ALB não manda header)", async () => {
+  const app = await montarApp();
+  const res = await app.inject({ method: "GET", url: "/health" });
+  assert.equal(res.statusCode, 200);
+});
+
 // chatId é obrigatório SEMPRE (produção e desenvolvimento) — só NODE_ENV=test
 // relaxa isso (gera UUID), pra facilitar teste sem precisar inventar chatId
 // toda hora. Rodando via `pnpm test`, NODE_ENV já vem "test" (ver package.json).
 test("POST /atendimentos sem chatId, NODE_ENV=test → 201 com UUID gerado, não rejeita com 400", async () => {
   const app = await montarApp();
-  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {}, headers: AUTH });
   assert.equal(res.statusCode, 201);
   assert.equal(res.json().status, "em_andamento");
 });
@@ -23,7 +51,7 @@ test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório
   process.env.NODE_ENV = "development";
   try {
     const app = await montarApp();
-    const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {} });
+    const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {}, headers: AUTH });
     assert.equal(res.statusCode, 400);
   } finally {
     process.env.NODE_ENV = original;
@@ -33,7 +61,7 @@ test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório
 test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.responder presente", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
   const body = res.json();
   assert.equal(res.statusCode, 201);
   assert.equal(res.headers.location, `/atendimentos/${chatId}`);
@@ -47,15 +75,15 @@ test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.res
 
 test("GET /atendimentos/:chatId inexistente → 404", async () => {
   const app = await montarApp();
-  const res = await app.inject({ method: "GET", url: "/atendimentos/nao-existe-nunca-foi-criado" });
+  const res = await app.inject({ method: "GET", url: "/atendimentos/nao-existe-nunca-foi-criado", headers: AUTH });
   assert.equal(res.statusCode, 404);
 });
 
 test("GET /atendimentos/:chatId depois de criado → mesma pergunta pendente, sem avançar o fluxo", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
-  const res = await app.inject({ method: "GET", url: `/atendimentos/${chatId}` });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
+  const res = await app.inject({ method: "GET", url: `/atendimentos/${chatId}`, headers: AUTH });
   const body = res.json();
   assert.equal(res.statusCode, 200);
   assert.match(body.resposta, /número do processo/);
@@ -68,6 +96,7 @@ test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async
     method: "POST",
     url: "/atendimentos/nunca-criado/respostas",
     payload: { resposta: "true" },
+    headers: AUTH,
   });
   assert.equal(res.statusCode, 409);
 });
@@ -75,11 +104,12 @@ test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async
 test("POST /atendimentos/:chatId/respostas continua a MESMA conversa (não reinicia)", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
   const res = await app.inject({
     method: "POST",
     url: `/atendimentos/${chatId}/respostas`,
     payload: { resposta: "true" },
+    headers: AUTH,
   });
   const body = res.json();
   assert.equal(res.statusCode, 200);
@@ -89,11 +119,12 @@ test("POST /atendimentos/:chatId/respostas continua a MESMA conversa (não reini
 test("resposta 'false' funciona (regressão do bug resume:boolean falsy)", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
   const res = await app.inject({
     method: "POST",
     url: `/atendimentos/${chatId}/respostas`,
     payload: { resposta: "false" },
+    headers: AUTH,
   });
   assert.equal(res.statusCode, 200);
   assert.match(res.json().resposta, /RG da pessoa presa/);
@@ -103,9 +134,9 @@ test("fluxo completo: termina com status concluido, sem opcoes, sem _links.respo
   const app = await montarApp();
   const chatId = novoChatId();
   const responder = (resposta: string) =>
-    app.inject({ method: "POST", url: `/atendimentos/${chatId}/respostas`, payload: { resposta } });
+    app.inject({ method: "POST", url: `/atendimentos/${chatId}/respostas`, payload: { resposta }, headers: AUTH });
 
-  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId } });
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
   await responder("false"); // sem processo
   await responder("11111111111"); // RG
   await responder("true"); // confirma nome

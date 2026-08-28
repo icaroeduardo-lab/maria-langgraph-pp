@@ -10,12 +10,13 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "cross-env NODE_ENV=test node --import tsx --test test/*.test.ts",
+    "test": "cross-env NODE_ENV=test API_KEY=teste-fixo-chave node --import tsx --test test/*.test.ts",
     "test:integracao": "node --import tsx --test test-integracao/*.test.ts",
     "studio": "npx @langchain/langgraph-cli dev",
     "logs:prod": "sh scripts/logs-prod.sh"
   },
   "dependencies": {
+    "@fastify/bearer-auth": "^10.1.3",
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.1",
     "@langchain/aws": "^1.4.4",
