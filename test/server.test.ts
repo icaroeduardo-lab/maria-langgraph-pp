@@ -8,10 +8,26 @@ function novoChatId() {
   return `teste-http-${contador}`;
 }
 
-test("POST /mensagem sem chatId → 400", async () => {
+// chatId é obrigatório SEMPRE (produção e desenvolvimento) — só NODE_ENV=test
+// relaxa isso (gera UUID), pra facilitar teste sem precisar inventar chatId
+// toda hora. Rodando via `pnpm test`, NODE_ENV já vem "test" (ver package.json).
+test("POST /mensagem sem chatId, NODE_ENV=test → gera UUID como fallback, não rejeita com 400", async () => {
   const app = montarApp();
   const res = await app.inject({ method: "POST", url: "/mensagem", payload: { mensagem: "oi" } });
-  assert.equal(res.statusCode, 400);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().status, "em_andamento");
+});
+
+test("POST /mensagem sem chatId, FORA de NODE_ENV=test → 400 (obrigatório de verdade)", async () => {
+  const original = process.env.NODE_ENV;
+  process.env.NODE_ENV = "development";
+  try {
+    const app = montarApp();
+    const res = await app.inject({ method: "POST", url: "/mensagem", payload: { mensagem: "oi" } });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    process.env.NODE_ENV = original;
+  }
 });
 
 test("1ª mensagem → pergunta sim_nao com opcoes, status em_andamento", async () => {

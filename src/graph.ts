@@ -3,6 +3,7 @@ import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { type PessoaPresaStateType, type Pergunta, PessoaPresaState } from "./state.js";
 import { consultarApenadoPorRg } from "./verde.js";
+import { reescreverPergunta } from "./reescrever.js";
 
 // Sem DATABASE_URL (ex: rodando os testes, que não carregam .env) cai pro
 // MemorySaver — checkpoint em memória, morre com o processo, mas mantém os
@@ -21,9 +22,25 @@ async function criarCheckpointer(): Promise<BaseCheckpointSaver> {
 }
 
 
-export async function pedirParentesco(): Promise<Partial<PessoaPresaStateType>> {
+// PROVA DE CONCEITO — só essa pergunta usa reescrita por IA por enquanto,
+// as outras 5 continuam com texto fixo até decidir expandir.
+//
+// 2 nós, não 1, de propósito: código ANTES de interrupt() no MESMO nó roda
+// de novo toda vez que aquela pausa é retomada (gotcha real do LangGraph —
+// "resume" replay o nó do início, interrupt() só some depois de já ter
+// devolvido o valor uma vez). Se a chamada à IA tivesse dentro do nó que
+// pausa, ela rodaria de novo (gastando Bedrock à toa) em toda resposta.
+// Separando: prepararPerguntaParentesco roda 1x, escreve o texto pronto no
+// estado (isso SIM fica salvo no checkpoint, não se repete); pedirParentesco
+// só lê o que já foi escrito e pausa — barato de re-rodar.
+async function prepararPerguntaParentesco(): Promise<Partial<PessoaPresaStateType>> {
+  const { texto, viaIA, tokensTotal } = await reescreverPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
+  return { perguntaParentescoTexto: texto, perguntaParentescoViaIA: viaIA, perguntaParentescoTokensTotal: tokensTotal };
+}
+
+export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const resposta = interrupt<Pergunta, string>({
-    pergunta: "Qual seu parentesco com a pessoa presa?",
+    pergunta: state.perguntaParentescoTexto ?? "Qual seu parentesco com a pessoa presa?",
     tipo: "texto",
   });
   return { parentesco: resposta };
@@ -112,6 +129,7 @@ function depoisDeConfirmarNome(state: PessoaPresaStateType): "concluir" | "naoCo
 }
 
 const grafo = new StateGraph(PessoaPresaState)
+  .addNode("prepararPerguntaParentesco", prepararPerguntaParentesco)
   .addNode("pedirParentesco", pedirParentesco)
   .addNode("pedirTemProcesso", pedirTemProcesso)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
@@ -138,9 +156,10 @@ const grafo = new StateGraph(PessoaPresaState)
     naoConfirmado: "naoConfirmado",
   })
   .addConditionalEdges("pedirConfirmaNome", depoisDeConfirmarNome, {
-    concluir: "pedirParentesco",
+    concluir: "prepararPerguntaParentesco",
     naoConfirmado: "naoConfirmado",
   })
+  .addEdge("prepararPerguntaParentesco", "pedirParentesco")
   .addEdge("pedirParentesco", "concluir")
   .addEdge("naoConfirmado", END)
   .addEdge("concluir", END)
