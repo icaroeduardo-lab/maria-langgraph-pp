@@ -11,7 +11,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "cross-env NODE_ENV=test node --import tsx --test test/*.test.ts",
-    "test:integracao": "node --import tsx --test test-integracao/*.test.ts"
+    "test:integracao": "node --import tsx --test test-integracao/*.test.ts",
+    "studio": "npx @langchain/langgraph-cli dev"
   },
   "dependencies": {
     "@langchain/aws": "^1.4.4",
@@ -24,6 +25,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@langchain/langgraph-cli": "^1.4.5",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "cross-env": "^10.1.0",

@@ -1,0 +1,8 @@
+{
+  "node_version": "20",
+  "dependencies": ["."],
+  "graphs": {
+    "pessoa_presa": "./src/graph.ts:grafo"
+  },
+  "env": ".env"
+}
