@@ -177,6 +177,10 @@ export async function montarApp() {
   });
   await app.register(fastifySwaggerUi, { routePrefix: "/docs" });
 
+  // GET /health — health check do target group do ALB (ECS). Sem side
+  // effect, não toca no grafo/banco — só confirma que o processo responde.
+  app.get("/health", { schema: { hide: true } }, async () => ({ status: "ok" }));
+
   // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
   // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
   // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera

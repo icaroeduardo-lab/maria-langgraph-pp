@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+*.log
+.git
+.langgraph_api
+test
+test-integracao
