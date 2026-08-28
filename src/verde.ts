@@ -20,6 +20,10 @@ interface ApenadoResponseVerde {
 export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
   if (!VERDE_JWT_TOKEN) {
     console.warn("[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // RG "000000000" simula "não encontrado" no mock (pra testar o fluxo de
+    // retry sem depender do Verde real) — qualquer outro RG "acha" a pessoa
+    // de teste.
+    if (rg === "000000000") return { encontrado: false };
     return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "ATIVO" };
   }
   try {
@@ -38,7 +42,11 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       return { encontrado: false };
     }
     const corpo = (await res.json()) as ApenadoResponseVerde;
-    if (!corpo.dados) return { encontrado: false };
+    // RG não encontrado: Verde devolve "dados": {} (objeto VAZIO, não null/
+    // ausente — confirmado ao vivo 2026-08-28) — checar só `!corpo.dados`
+    // não pega isso, `{}` é truthy. Checa um campo que só existe se achou
+    // de verdade.
+    if (!corpo.dados || corpo.dados.idPessoa === undefined) return { encontrado: false };
     return {
       encontrado: true,
       idSeap: corpo.dados.idSeap,

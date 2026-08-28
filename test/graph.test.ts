@@ -76,3 +76,50 @@ test("nome não confirmado → handoff_humano, NÃO pergunta parentesco", async 
   assert.equal(pergunta(rFinal), undefined);
   assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano");
 });
+
+test("RG não encontrado → pergunta se quer tentar de novo (tentativa 1 de 3)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  const r = await grafo.invoke(new Command({ resume: "000000000" }), config); // RG sentinela "não encontrado"
+  const p = pergunta(r);
+  assert.equal(p?.tipo, "sim_nao");
+  assert.match(p?.pergunta ?? "", /tentativa 1 de 3/);
+});
+
+test("RG não encontrado, aceita tentar de novo, acha na 2ª → segue pro confirma nome", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // 1ª tentativa, não encontrado
+  const rPergunta = await grafo.invoke(new Command({ resume: "true" }), config); // quer tentar de novo
+  assert.match(pergunta(rPergunta)?.pergunta ?? "", /RG da pessoa presa/);
+  const rApenado = await grafo.invoke(new Command({ resume: "11111111111" }), config); // 2ª tentativa, acha
+  assert.match(pergunta(rApenado)?.pergunta ?? "", /Confirma que a pessoa presa é/);
+});
+
+test("RG não encontrado, NÃO quer tentar de novo → handoff_humano direto", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  await grafo.invoke(new Command({ resume: "000000000" }), config);
+  const rFinal = await grafo.invoke(new Command({ resume: "false" }), config); // não quer tentar de novo
+  assert.equal(pergunta(rFinal), undefined);
+  assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano");
+});
+
+test("RG não encontrado 3x seguidas → esgota tentativas, vai direto pro atendente sem perguntar de novo", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  const rTentativa1 = await grafo.invoke(new Command({ resume: "000000000" }), config); // tentativa 1
+  assert.match(pergunta(rTentativa1)?.pergunta ?? "", /tentativa 1 de 3/);
+  await grafo.invoke(new Command({ resume: "true" }), config); // quer tentar de novo → pedirRg
+  const rTentativa2 = await grafo.invoke(new Command({ resume: "000000000" }), config); // tentativa 2
+  assert.match(pergunta(rTentativa2)?.pergunta ?? "", /tentativa 2 de 3/);
+  await grafo.invoke(new Command({ resume: "true" }), config); // quer tentar de novo → pedirRg
+  // tentativa 3: esgotou — vai direto pro atendente, SEM perguntar "quer tentar de novo?" de novo
+  const rFinal = await grafo.invoke(new Command({ resume: "000000000" }), config);
+  assert.equal(pergunta(rFinal), undefined, "não deve perguntar de novo — esgotou as 3 tentativas");
+  assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano");
+});

@@ -1,6 +1,24 @@
 import { interrupt, StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
+import type { BaseCheckpointSaver } from "@langchain/langgraph";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { type PessoaPresaStateType, type Pergunta, PessoaPresaState } from "./state.js";
 import { consultarApenadoPorRg } from "./verde.js";
+
+// Sem DATABASE_URL (ex: rodando os testes, que não carregam .env) cai pro
+// MemorySaver — checkpoint em memória, morre com o processo, mas mantém os
+// testes rápidos/isolados sem precisar de Postgres no ar. Com DATABASE_URL
+// (server.ts real), persiste de verdade — sobrevive a reinício/deploy.
+async function criarCheckpointer(): Promise<BaseCheckpointSaver> {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.warn("[checkpoint] DATABASE_URL ausente — usando MemorySaver (não persiste)");
+    return new MemorySaver();
+  }
+  const saver = PostgresSaver.fromConnString(url);
+  await saver.setup(); // cria as tabelas de checkpoint se ainda não existirem
+  console.log("[checkpoint] PostgresSaver conectado");
+  return saver;
+}
 
 
 export async function pedirParentesco(): Promise<Partial<PessoaPresaStateType>> {
@@ -46,7 +64,29 @@ function depoisDeTemProcesso(state: PessoaPresaStateType): "pedirNumeroProcesso"
 
 async function consultarApenado(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const dados = await consultarApenadoPorRg(state.rg ?? "");
-  return { dadosApenado: dados };
+  return { dadosApenado: dados, tentativasRg: (state.tentativasRg ?? 0) + 1 };
+}
+
+// 3 tentativas de RG no total. Não encontrado com tentativa < 3: pergunta se
+// quer tentar de novo (perguntaTentarNovamente). Na 3ª falha, esgotou —
+// direto pro atendente, sem perguntar de novo (não sobra tentativa).
+function depoisDeConsultarApenado(state: PessoaPresaStateType): "pedirConfirmaNome" | "perguntaTentarNovamente" | "naoConfirmado" {
+  if (state.dadosApenado?.encontrado) return "pedirConfirmaNome";
+  if ((state.tentativasRg ?? 0) >= 3) return "naoConfirmado";
+  return "perguntaTentarNovamente";
+}
+
+async function perguntaTentarNovamente(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta: `Não encontrei ninguém com esse RG (tentativa ${state.tentativasRg ?? 1} de 3). Quer tentar de novo?`,
+    tipo: "sim_nao",
+    opcoes: ["Sim", "Não"],
+  });
+  return { querTentarNovamente: resposta === "true" };
+}
+
+function depoisDePerguntaTentar(state: PessoaPresaStateType): "pedirRg" | "naoConfirmado" {
+  return state.querTentarNovamente ? "pedirRg" : "naoConfirmado";
 }
 
 async function pedirConfirmaNome(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
@@ -77,6 +117,7 @@ const grafo = new StateGraph(PessoaPresaState)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
   .addNode("pedirRg", pedirRg)
   .addNode("consultarApenado", consultarApenado)
+  .addNode("perguntaTentarNovamente", perguntaTentarNovamente)
   .addNode("pedirConfirmaNome", pedirConfirmaNome)
   .addNode("concluir", concluir)
   .addNode("naoConfirmado", naoConfirmado)
@@ -87,7 +128,15 @@ const grafo = new StateGraph(PessoaPresaState)
   })
   .addEdge("pedirNumeroProcesso", "pedirRg")
   .addEdge("pedirRg", "consultarApenado")
-  .addEdge("consultarApenado", "pedirConfirmaNome")
+  .addConditionalEdges("consultarApenado", depoisDeConsultarApenado, {
+    pedirConfirmaNome: "pedirConfirmaNome",
+    perguntaTentarNovamente: "perguntaTentarNovamente",
+    naoConfirmado: "naoConfirmado",
+  })
+  .addConditionalEdges("perguntaTentarNovamente", depoisDePerguntaTentar, {
+    pedirRg: "pedirRg",
+    naoConfirmado: "naoConfirmado",
+  })
   .addConditionalEdges("pedirConfirmaNome", depoisDeConfirmarNome, {
     concluir: "pedirParentesco",
     naoConfirmado: "naoConfirmado",
@@ -95,6 +144,6 @@ const grafo = new StateGraph(PessoaPresaState)
   .addEdge("pedirParentesco", "concluir")
   .addEdge("naoConfirmado", END)
   .addEdge("concluir", END)
-  .compile({ checkpointer: new MemorySaver() });
+  .compile({ checkpointer: await criarCheckpointer() });
 
 export { grafo };

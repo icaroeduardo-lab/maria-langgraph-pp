@@ -22,6 +22,8 @@ export const PessoaPresaState = Annotation.Root({
   numeroProcesso: Annotation<string | undefined>,
   rg: Annotation<string | undefined>,
   dadosApenado: Annotation<DadosApenado | undefined>,
+  tentativasRg: Annotation<number | undefined>,
+  querTentarNovamente: Annotation<boolean | undefined>,
   confirmaNome: Annotation<boolean | undefined>,
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
 });
