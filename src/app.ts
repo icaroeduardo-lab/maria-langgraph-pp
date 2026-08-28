@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { Command } from "@langchain/langgraph";
 import { grafo } from "./graph.js";
+import type { DadosApenado } from "./state.js";
 
 interface InterruptValue {
   pergunta: string;
@@ -27,22 +28,44 @@ function montarLinks(chatId: string, status: string): Links {
   return links;
 }
 
+interface MetadadosAtendimento {
+  parentesco?: string;
+  temProcesso?: boolean;
+  numeroProcesso?: string;
+  rg?: string;
+  dadosApenado?: DadosApenado;
+  motivoHandoff?: string;
+}
+
 interface RespostaAtendimento {
   resposta: string;
   tipoResposta: string;
   opcoes?: string[];
   status: string;
+  // só presente quando status !== "em_andamento" — no meio da conversa os
+  // dados ainda estão incompletos, não faz sentido a Tykhe consumir isso
+  // antes do fluxo terminar. Em concluido/handoff_humano, é o que a Tykhe
+  // precisa pra seguir (agendamento ou repassar pro atendente humano) sem
+  // ter que reperguntar tudo de novo.
+  metadados?: MetadadosAtendimento;
   _links: Links;
+}
+
+type ValoresAtendimento = Partial<PessoaPresaValores>;
+interface PessoaPresaValores {
+  statusFinal: string;
+  parentesco: string;
+  temProcesso: boolean;
+  numeroProcesso: string;
+  rg: string;
+  dadosApenado: DadosApenado;
+  motivoHandoff: string;
 }
 
 // Compartilhado entre POST /atendimentos, GET /atendimentos/:chatId e
 // POST /atendimentos/:chatId/respostas — os 3 terminam no MESMO shape de
 // resposta, só muda como chegam no `interrupt`/`values`.
-function montarRespostaAtendimento(
-  chatId: string,
-  interrupt: InterruptValue | undefined,
-  values: { statusFinal?: string }
-): RespostaAtendimento {
+function montarRespostaAtendimento(chatId: string, interrupt: InterruptValue | undefined, values: ValoresAtendimento): RespostaAtendimento {
   if (interrupt) {
     return {
       resposta: interrupt.pergunta,
@@ -57,7 +80,15 @@ function montarRespostaAtendimento(
     status === "concluido"
       ? "Show! Já confirmei os dados da pessoa presa. Vou seguir com o encaminhamento a partir daqui."
       : "Não consegui confirmar os dados da pessoa presa. Vou encaminhar seu atendimento pra equipe verificar com mais calma.";
-  return { resposta: mensagem, tipoResposta: "texto", status, _links: montarLinks(chatId, status) };
+  const metadados: MetadadosAtendimento = {
+    parentesco: values.parentesco,
+    temProcesso: values.temProcesso,
+    numeroProcesso: values.numeroProcesso,
+    rg: values.rg,
+    dadosApenado: values.dadosApenado,
+    ...(values.motivoHandoff ? { motivoHandoff: values.motivoHandoff } : {}),
+  };
+  return { resposta: mensagem, tipoResposta: "texto", status, metadados, _links: montarLinks(chatId, status) };
 }
 
 function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
@@ -103,7 +134,7 @@ export function montarApp() {
     req.log.info({ chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
 
     reply.code(201).header("Location", `/atendimentos/${chatId}`);
-    return montarRespostaAtendimento(chatId, interrupt, resultado as { statusFinal?: string });
+    return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
   });
 
   // GET /atendimentos/:chatId — consulta o estado ATUAL, sem avançar nada
@@ -114,7 +145,7 @@ export function montarApp() {
     const config = { configurable: { thread_id: chatId } };
     const estado = await grafo.getState(config);
     const interrupt = estado.tasks?.[0]?.interrupts?.[0]?.value as InterruptValue | undefined;
-    const valores = (estado.values ?? {}) as { statusFinal?: string };
+    const valores = (estado.values ?? {}) as ValoresAtendimento;
     const existe = !!interrupt || Object.keys(valores).length > 0;
     if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
     return montarRespostaAtendimento(chatId, interrupt, valores);
@@ -151,10 +182,10 @@ export function montarApp() {
       };
       req.log.info({ chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
     } else {
-      const status = (resultado as { statusFinal?: string }).statusFinal ?? "concluido";
+      const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
       req.log.info({ chatId, status }, "atendimento finalizado");
     }
-    return montarRespostaAtendimento(chatId, interrupt, resultado as { statusFinal?: string });
+    return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
   });
 
   return app;

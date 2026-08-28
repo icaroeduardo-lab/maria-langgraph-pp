@@ -151,8 +151,15 @@ async function concluir(): Promise<Partial<PessoaPresaStateType>> {
   return { statusFinal: "concluido" };
 }
 
-async function naoConfirmado(): Promise<Partial<PessoaPresaStateType>> {
-  return { statusFinal: "handoff_humano" };
+// naoConfirmado é o dead-end compartilhado por 2 caminhos diferentes:
+// esgotou as 3 tentativas de RG (dadosApenado nunca encontrado) ou achou a
+// pessoa mas não confirmou o nome. O motivo não vem por parâmetro (LangGraph
+// não passa argumento extra pro nó, só o state) — dá pra deduzir olhando o
+// que já está no estado: se NÃO achou ninguém, é falta de RG; se achou mas
+// confirmaNome é false, é nome não confirmado.
+async function naoConfirmado(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const motivoHandoff = state.dadosApenado?.encontrado ? "nome_nao_confirmado" : "rg_nao_encontrado";
+  return { statusFinal: "handoff_humano", motivoHandoff };
 }
 
 function depoisDeConfirmarNome(state: PessoaPresaStateType): "concluir" | "naoConfirmado" {
