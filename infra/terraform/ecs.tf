@@ -30,7 +30,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "AWS_REGION", value = var.aws_region },
     ]
     secrets = [
-      for k in ["VERDE_API_URL", "VERDE_JWT_TOKEN", "VERDE_CLIENT_ID", "DATABASE_URL", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT"] :
+      for k in ["VERDE_API_URL", "VERDE_JWT_TOKEN", "VERDE_CLIENT_ID", "DATABASE_URL", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "API_KEY"] :
       { name = k, valueFrom = "${aws_secretsmanager_secret.app.arn}:${k}::" }
     ]
     logConfiguration = {

@@ -14,6 +14,7 @@ resource "aws_secretsmanager_secret_version" "app" {
     DATABASE_URL      = "PREENCHER" # aponta pro RDS Proxy compartilhado, banco maria_langgraph_pp
     LANGSMITH_API_KEY = "PREENCHER"
     LANGSMITH_PROJECT = "maria-langgraph-pp"
+    API_KEY           = "PREENCHER" # chave que a Tykhe manda em Authorization: Bearer <API_KEY>
   })
 
   lifecycle {
