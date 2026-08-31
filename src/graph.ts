@@ -21,6 +21,23 @@ async function criarCheckpointer(): Promise<BaseCheckpointSaver> {
   return saver;
 }
 
+// Normaliza a resposta de uma pergunta sim_nao. O contrato original previa
+// só "true"/"false" crus (a Tykhe manda isso) — mas na prática o fluxo dela
+// às vezes repassa o texto literal que o usuário digitou/clicou ("Sim"/
+// "Não", com acento/maiúscula variável), sem traduzir pra "true"/"false".
+// Achado ao vivo 2026-08-31: "Sim" literal caindo em `resposta === "true"`
+// vira false, confirmação de nome nega errado, manda pro handoff sem
+// motivo. Aceita as duas formas — tolerante ao cliente real, não só ao
+// contrato "correto" no papel.
+function respostaEhSim(resposta: string): boolean {
+  const normalizado = resposta
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // remove acentos (ã→a, ó→o...)
+    .trim()
+    .toLowerCase();
+  return normalizado === "true" || normalizado === "sim" || normalizado === "s" || normalizado === "yes";
+}
+
 // Todas as 6 perguntas seguem o MESMO padrão de 2 nós: um "preparar" (chama
 // a IA, roda 1x, escreve o texto pronto em perguntaAtual*) e um "pedir" (só
 // lê o que já foi escrito e pausa em interrupt()).
@@ -53,7 +70,7 @@ async function pedirTemProcesso(state: PessoaPresaStateType): Promise<Partial<Pe
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { temProcesso: resposta === "true" };
+  return { temProcesso: respostaEhSim(resposta) };
 }
 
 async function prepararPerguntaNumeroProcesso(): Promise<Partial<PessoaPresaStateType>> {
@@ -113,7 +130,7 @@ async function perguntaTentarNovamente(state: PessoaPresaStateType): Promise<Par
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { querTentarNovamente: resposta === "true" };
+  return { querTentarNovamente: respostaEhSim(resposta) };
 }
 
 function depoisDePerguntaTentar(state: PessoaPresaStateType): "pedirRg" | "naoConfirmado" {
@@ -132,7 +149,7 @@ async function pedirConfirmaNome(state: PessoaPresaStateType): Promise<Partial<P
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { confirmaNome: resposta === "true" };
+  return { confirmaNome: respostaEhSim(resposta) };
 }
 
 async function prepararPerguntaParentesco(): Promise<Partial<PessoaPresaStateType>> {

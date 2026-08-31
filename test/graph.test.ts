@@ -40,6 +40,19 @@ test("temProcesso=false → pula direto pro RG", async () => {
   assert.match(p?.pergunta ?? "", /RG da pessoa presa/);
 });
 
+// Regressão — bug real achado ao vivo 2026-08-31: o fluxo da Tykhe manda o
+// texto literal "Sim"/"Não" digitado pelo usuário, não "true"/"false" como
+// o contrato previa. Confirmação de nome com "Sim" literal virava false (a
+// comparação estrita === "true" não reconhecia), negando a confirmação sem
+// motivo e mandando pro handoff. respostaEhSim() aceita as duas formas.
+test("resume com 'Sim'/'Não' literal (não 'true'/'false') funciona igual", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  const r = await grafo.invoke(new Command({ resume: "Sim" }), config);
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /Qual o número do processo/, "'Sim' deveria contar como temProcesso=true, igual 'true'");
+});
+
 test("resume com 'false' não quebra (regressão do bug de Command({resume:false})/valor falsy)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config); // pausa em pedirTemProcesso
@@ -65,6 +78,15 @@ test("fluxo completo: sem processo, nome confirmado → concluido, parentesco é
   const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
   assert.equal(pergunta(rFinal), undefined, "não deve ter pergunta pendente no fim");
   assert.equal((rFinal as { statusFinal?: string }).statusFinal, "concluido");
+});
+
+test("confirmação de nome com 'Sim' literal → concluido (cenário exato do bug real: WhatsApp/Tykhe manda 'Sim', não 'true')", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "Não" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  const rConfirma = await grafo.invoke(new Command({ resume: "Sim" }), config); // confirma nome, literal
+  assert.match(pergunta(rConfirma)?.pergunta ?? "", /parentesco/, "'Sim' deveria confirmar o nome, não mandar pro handoff");
 });
 
 test("nome não confirmado → handoff_humano, NÃO pergunta parentesco", async () => {
