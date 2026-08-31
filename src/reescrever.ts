@@ -18,7 +18,10 @@ const SchemaReescrita = z.object({
 
 const SISTEMA = `Você reescreve perguntas de um formulário jurídico da Defensoria Pública do RJ.
 Regras: mantenha o MESMO significado — nunca invente informação nova, nunca mude o que está sendo pedido.
-Tom acolhedor, claro, direto. Português do Brasil com emoji (se for possível). Uma frase só, terminada em "?".`;
+Tom acolhedor, claro, direto. Português do Brasil com emoji (se for possível). Uma frase só, terminada em "?".
+Preserve a ordem natural das palavras perto de nomes próprios e do termo "pessoa presa" — nunca separe "presa"
+do que ela qualifica (ex: NUNCA "Essa é o Fulano presa?"; prefira "Essa pessoa presa é o Fulano?" ou manter a
+estrutura original). Reescreva o tom/fraseado, não a ordem das informações.`;
 
 export interface ResultadoReescrita {
   texto: string;
@@ -41,8 +44,14 @@ export interface ResultadoReescrita {
 // (texto reescrito varia entre execuções, quebra assert de texto fixo).
 // Testar a reescrita de verdade fica pra um teste isolado que força
 // NODE_ENV != "test" de propósito (ver test/reescrever.test.ts).
+//
+// REESCREVER_IA desligado por padrão (2026-08-31) — decisão explícita do
+// usuário depois de ver reescrita com fraseado estranho ("Essa é o Fulano
+// presa?") em produção real. Perguntas fixas por enquanto, sem apagar a
+// integração — religar setando REESCREVER_IA=true quando o prompt estiver
+// mais confiável.
 export async function reescreverPergunta(campo: string, objetivoBase: string): Promise<ResultadoReescrita> {
-  if (process.env.NODE_ENV === "test") {
+  if (process.env.NODE_ENV === "test" || process.env.REESCREVER_IA !== "true") {
     return { texto: objetivoBase, viaIA: false };
   }
   try {
