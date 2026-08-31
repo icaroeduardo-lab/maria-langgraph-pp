@@ -39,10 +39,10 @@ test("GET /health não exige Authorization (health check do ALB não manda heade
 // chatId é obrigatório SEMPRE (produção e desenvolvimento) — só NODE_ENV=test
 // relaxa isso (gera UUID), pra facilitar teste sem precisar inventar chatId
 // toda hora. Rodando via `pnpm test`, NODE_ENV já vem "test" (ver package.json).
-test("POST /atendimentos sem chatId, NODE_ENV=test → 201 com UUID gerado, não rejeita com 400", async () => {
+test("POST /atendimentos sem chatId, NODE_ENV=test → 200 com UUID gerado, não rejeita com 400", async () => {
   const app = await montarApp();
   const res = await app.inject({ method: "POST", url: "/atendimentos", payload: {}, headers: AUTH });
-  assert.equal(res.statusCode, 201);
+  assert.equal(res.statusCode, 200);
   assert.equal(res.json().status, "em_andamento");
 });
 
@@ -58,12 +58,12 @@ test("POST /atendimentos sem chatId, FORA de NODE_ENV=test → 400 (obrigatório
   }
 });
 
-test("POST /atendimentos → 201, Location aponta pro recurso criado, _links.responder presente", async () => {
+test("POST /atendimentos → 200, Location aponta pro recurso criado, _links.responder presente", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
   const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
   const body = res.json();
-  assert.equal(res.statusCode, 201);
+  assert.equal(res.statusCode, 200);
   assert.equal(res.headers.location, `/atendimentos/${chatId}`);
   assert.equal(body.tipoResposta, "sim_nao");
   assert.deepEqual(body.opcoes, ["Sim", "Não"]);

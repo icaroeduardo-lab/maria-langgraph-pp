@@ -218,7 +218,7 @@ export async function montarApp() {
           type: "object",
           properties: { chatId: { type: "string", description: "Id atribuído pela Tykhe — obrigatório fora de NODE_ENV=test" } },
         },
-        response: { 201: respostaAtendimentoSchema, 400: erroSchema },
+        response: { 200: respostaAtendimentoSchema, 400: erroSchema },
       },
     },
     async (req, reply) => {
@@ -241,7 +241,10 @@ export async function montarApp() {
     };
     req.log.info({ chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
 
-    reply.code(201).header("Location", `/atendimentos/${chatId}`);
+    // 200, não 201 — a Tykhe só reconhece 200 como padrão de sucesso (pedido
+    // explícito, evita trabalho extra do lado deles). Abre mão do 201/Location
+    // "correto" do REST nível 3 em troca de compatibilidade com o consumidor real.
+    reply.code(200).header("Location", `/atendimentos/${chatId}`);
     return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
