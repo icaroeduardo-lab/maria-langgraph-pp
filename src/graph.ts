@@ -2,7 +2,7 @@ import { interrupt, StateGraph, START, END, MemorySaver } from "@langchain/langg
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { type PessoaPresaStateType, type Pergunta, PessoaPresaState } from "./state.js";
-import { consultarApenadoPorRg } from "./verde.js";
+import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "./verde.js";
 import { reescreverPergunta } from "./reescrever.js";
 
 // Sem DATABASE_URL (ex: rodando os testes, que não carregam .env) cai pro
@@ -83,6 +83,15 @@ async function pedirNumeroProcesso(state: PessoaPresaStateType): Promise<Partial
     tipo: "texto",
   });
   return { numeroProcesso: resposta };
+}
+
+// Consulta o processo no Verde logo depois de coletar o número — informativo,
+// não trava o fluxo (diferente do RG/apenado, que tem retry e gate de
+// confirmação). Erro ou não encontrado só fica em dadosProcesso.encontrado,
+// segue pra pergunta do RG normalmente de qualquer jeito.
+async function consultarProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const dados = await consultarProcessoVerde(state.numeroProcesso ?? "");
+  return { dadosProcesso: dados };
 }
 
 async function prepararPerguntaRg(): Promise<Partial<PessoaPresaStateType>> {
@@ -188,6 +197,7 @@ const grafo = new StateGraph(PessoaPresaState)
   .addNode("pedirTemProcesso", pedirTemProcesso)
   .addNode("prepararPerguntaNumeroProcesso", prepararPerguntaNumeroProcesso)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
+  .addNode("consultarProcesso", consultarProcesso)
   .addNode("prepararPerguntaRg", prepararPerguntaRg)
   .addNode("pedirRg", pedirRg)
   .addNode("consultarApenado", consultarApenado)
@@ -206,7 +216,8 @@ const grafo = new StateGraph(PessoaPresaState)
     pedirRg: "prepararPerguntaRg",
   })
   .addEdge("prepararPerguntaNumeroProcesso", "pedirNumeroProcesso")
-  .addEdge("pedirNumeroProcesso", "prepararPerguntaRg")
+  .addEdge("pedirNumeroProcesso", "consultarProcesso")
+  .addEdge("consultarProcesso", "prepararPerguntaRg")
   .addEdge("prepararPerguntaRg", "pedirRg")
   .addEdge("pedirRg", "consultarApenado")
   .addConditionalEdges("consultarApenado", depoisDeConsultarApenado, {

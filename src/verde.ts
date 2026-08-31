@@ -1,4 +1,4 @@
-import type { DadosApenado } from "./state.js";
+import type { DadosApenado, DadosProcesso } from "./state.js";
 
 // TODO: VERDE_JWT_TOKEN é temporário (emitido como app "Tykhe" pelo Verde,
 // expira 2026-09-12) — precisa de credencial própria da Maria antes disso.
@@ -56,6 +56,60 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
     };
   } catch (err) {
     console.error("[verde] apenado: falha na chamada:", err);
+    return { encontrado: false };
+  }
+}
+
+interface ProcessoResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: {
+    id?: number;
+    origem?: string;
+    instancia?: number;
+    nomeAssunto?: string;
+    nomeOrgaoJulgador?: string;
+    movimentos?: Array<{ titulo?: string; data?: string; descricao?: string; traducao?: string }>;
+  };
+}
+
+// Consulta o processo pelo número informado (só chamada quando temProcesso:
+// true — ver graph.ts). Diferente de consultarApenadoPorRg, NÃO trava o
+// fluxo: erro/não encontrado só fica registrado em dadosProcesso.encontrado,
+// sem retry nem pergunta de "tentar de novo" — é informação complementar
+// pra Tykhe, não um gate de identificação.
+export async function consultarProcesso(numero: string): Promise<DadosProcesso> {
+  if (!VERDE_JWT_TOKEN) {
+    console.warn("[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    return { encontrado: true, id: 999999, origem: "e-Proc (mock)", nomeAssunto: "Processo de Teste" };
+  }
+  try {
+    const res = await fetch(`${VERDE_API_URL}/processo/consultar/${encodeURIComponent(numero)}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      console.warn(`[verde] processo: HTTP ${res.status}`);
+      return { encontrado: false };
+    }
+    const corpo = (await res.json()) as ProcessoResponseVerde;
+    if (!corpo.dados || corpo.dados.id === undefined) return { encontrado: false };
+    return {
+      encontrado: true,
+      id: corpo.dados.id,
+      origem: corpo.dados.origem,
+      instancia: corpo.dados.instancia,
+      nomeAssunto: corpo.dados.nomeAssunto,
+      nomeOrgaoJulgador: corpo.dados.nomeOrgaoJulgador,
+      movimentos: corpo.dados.movimentos,
+    };
+  } catch (err) {
+    console.error("[verde] processo: falha na chamada:", err);
     return { encontrado: false };
   }
 }

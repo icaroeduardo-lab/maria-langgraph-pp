@@ -5,7 +5,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 import fastifyBearerAuth from "@fastify/bearer-auth";
 import { Command } from "@langchain/langgraph";
 import { grafo } from "./graph.js";
-import type { DadosApenado } from "./state.js";
+import type { DadosApenado, DadosProcesso } from "./state.js";
 
 interface InterruptValue {
   pergunta: string;
@@ -35,6 +35,7 @@ interface MetadadosAtendimento {
   parentesco?: string;
   temProcesso?: boolean;
   numeroProcesso?: string;
+  dadosProcesso?: DadosProcesso;
   rg?: string;
   dadosApenado?: DadosApenado;
   motivoHandoff?: string;
@@ -60,6 +61,7 @@ interface PessoaPresaValores {
   parentesco: string;
   temProcesso: boolean;
   numeroProcesso: string;
+  dadosProcesso: DadosProcesso;
   rg: string;
   dadosApenado: DadosApenado;
   motivoHandoff: string;
@@ -87,6 +89,7 @@ function montarRespostaAtendimento(chatId: string, interrupt: InterruptValue | u
     parentesco: values.parentesco,
     temProcesso: values.temProcesso,
     numeroProcesso: values.numeroProcesso,
+    dadosProcesso: values.dadosProcesso,
     rg: values.rg,
     dadosApenado: values.dadosApenado,
     ...(values.motivoHandoff ? { motivoHandoff: values.motivoHandoff } : {}),
@@ -118,6 +121,29 @@ const metadadosSchema = {
     parentesco: { type: "string" },
     temProcesso: { type: "boolean" },
     numeroProcesso: { type: "string" },
+    dadosProcesso: {
+      type: "object",
+      properties: {
+        encontrado: { type: "boolean" },
+        id: { type: "number" },
+        origem: { type: "string" },
+        instancia: { type: "number" },
+        nomeAssunto: { type: "string" },
+        nomeOrgaoJulgador: { type: "string" },
+        movimentos: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              titulo: { type: "string" },
+              data: { type: "string" },
+              descricao: { type: "string" },
+              traducao: { type: "string" },
+            },
+          },
+        },
+      },
+    },
     rg: { type: "string" },
     dadosApenado: {
       type: "object",

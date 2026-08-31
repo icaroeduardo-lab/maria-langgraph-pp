@@ -32,6 +32,17 @@ test("temProcesso=true → pergunta número do processo (não pula pro RG)", asy
   assert.match(p?.pergunta ?? "", /Qual o número do processo/);
 });
 
+test("temProcesso=true → depois de informar o número, consulta o processo (Verde) e segue pro RG normalmente", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem processo
+  const r = await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // número
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /RG da pessoa presa/, "consultarProcesso não deve travar o fluxo, mesmo sem achar/com erro");
+  const dadosProcesso = (r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso;
+  assert.equal(typeof dadosProcesso?.encontrado, "boolean", "dadosProcesso deveria estar preenchido no state");
+});
+
 test("temProcesso=false → pula direto pro RG", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);

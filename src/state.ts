@@ -10,6 +10,25 @@ export interface DadosApenado {
   situacao?: string;
 }
 
+export interface MovimentoProcesso {
+  titulo?: string;
+  data?: string;
+  descricao?: string;
+  // explicação em linguagem simples pro cidadão — vem pronta do Verde,
+  // não é gerada por nós.
+  traducao?: string;
+}
+
+export interface DadosProcesso {
+  encontrado: boolean;
+  id?: number;
+  origem?: string;
+  instancia?: number;
+  nomeAssunto?: string;
+  nomeOrgaoJulgador?: string;
+  movimentos?: MovimentoProcesso[];
+}
+
 export interface Pergunta {
   pergunta: string;
   tipo: "texto" | "sim_nao" | "opcoes";
@@ -20,6 +39,7 @@ export const PessoaPresaState = Annotation.Root({
   parentesco: Annotation<string | undefined>,
   temProcesso: Annotation<boolean | undefined>,
   numeroProcesso: Annotation<string | undefined>,
+  dadosProcesso: Annotation<DadosProcesso | undefined>,
   rg: Annotation<string | undefined>,
   dadosApenado: Annotation<DadosApenado | undefined>,
   tentativasRg: Annotation<number | undefined>,
