@@ -90,6 +90,28 @@ test("GET /atendimentos/:chatId depois de criado → mesma pergunta pendente, se
   assert.equal(body.status, "em_andamento");
 });
 
+// Regressão — bug real achado ao vivo 2026-08-31: a Tykhe chamando POST
+// /atendimentos de novo no MESMO chatId (retry/reconexão) reiniciava a
+// conversa do zero, apagando o progresso (avançava pra numeroProcesso/RG e
+// voltava pra temProcesso). POST em chatId existente agora é idempotente.
+test("POST /atendimentos 2x no MESMO chatId não reinicia — devolve o estado atual", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
+  // avança pra pergunta do RG (sem processo → pula numeroProcesso)
+  await app.inject({
+    method: "POST",
+    url: `/atendimentos/${chatId}/respostas`,
+    payload: { resposta: "false" },
+    headers: AUTH,
+  });
+
+  const res = await app.inject({ method: "POST", url: "/atendimentos", payload: { chatId }, headers: AUTH });
+  const body = res.json();
+  assert.equal(res.statusCode, 200);
+  assert.match(body.resposta, /RG da pessoa presa/, "deveria continuar na pergunta do RG, não voltar pro início");
+});
+
 test("POST /atendimentos/:chatId/respostas em chatId inexistente → 409", async () => {
   const app = await montarApp();
   const res = await app.inject({

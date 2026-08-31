@@ -231,6 +231,25 @@ export async function montarApp() {
     if (chatIdGerado) req.log.warn({ chatId }, "chatId ausente na requisição — gerado UUID (só permitido em NODE_ENV=test)");
 
     const config = { configurable: { thread_id: chatId } };
+
+    // Idempotente: se esse chatId JÁ tem atendimento em andamento, devolve o
+    // estado atual (igual ao GET) — NUNCA chama invoke({}) de novo. Bug real
+    // achado ao vivo 2026-08-31: invoke({}) num thread_id existente reinicia
+    // o grafo do zero (mesmo padrão do "NUNCA MUDAR" documentado no back
+    // antigo — invoke com input não-nulo/repetido apaga o checkpoint),
+    // apagando todo o progresso da conversa se a Tykhe chamar POST de novo
+    // (retry, reconexão) em vez de GET.
+    const estadoAnterior = await grafo.getState(config);
+    const interruptAnterior = estadoAnterior.tasks?.[0]?.interrupts?.[0]?.value as InterruptValue | undefined;
+    const valoresAnteriores = (estadoAnterior.values ?? {}) as ValoresAtendimento;
+    const jaExiste = !!interruptAnterior || Object.keys(valoresAnteriores).length > 0;
+
+    if (jaExiste) {
+      req.log.warn({ chatId }, "POST /atendimentos em chatId que já existe — devolvendo estado atual, sem reiniciar");
+      reply.code(200).header("Location", `/atendimentos/${chatId}`);
+      return montarRespostaAtendimento(chatId, interruptAnterior, valoresAnteriores);
+    }
+
     req.log.info({ chatId }, "atendimento criado");
     const resultado = await grafo.invoke({}, config);
 
