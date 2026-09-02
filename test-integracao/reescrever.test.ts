@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reescreverPergunta } from "../src/reescrever.js";
+import { reescreverPergunta } from "../src/ia/reescrever.js";
 
 // Único teste que chama o Bedrock de VERDADE — por isso vive em
 // test-integracao/, FORA do glob do `pnpm test` padrão (test/*.test.ts).
@@ -11,9 +11,13 @@ import { reescreverPergunta } from "../src/reescrever.js";
 // válidas (não confundir com VERDE_JWT_TOKEN, que é outra credencial) e
 // gasta uma chamada de verdade — não roda em CI por padrão a menos que o
 // script `test:integracao` seja chamado explicitamente.
-test("reescreverPergunta chama o Bedrock de verdade quando NODE_ENV != test", async () => {
-  const original = process.env.NODE_ENV;
+test("reescreverPergunta chama o Bedrock de verdade quando NODE_ENV != test e REESCREVER_IA=true", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalReescreverIa = process.env.REESCREVER_IA;
   process.env.NODE_ENV = "development";
+  // REESCREVER_IA desligado por padrão desde 2026-08-31 (ver ia/reescrever.ts)
+  // — sem isso o early-return nem chega a chamar o Bedrock, viaIA sempre false.
+  process.env.REESCREVER_IA = "true";
   try {
     const resultado = await reescreverPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
     assert.equal(resultado.viaIA, true, "esperava a IA responder com sucesso (credencial AWS configurada)");
@@ -21,6 +25,7 @@ test("reescreverPergunta chama o Bedrock de verdade quando NODE_ENV != test", as
     assert.ok(resultado.texto.length > 0);
     assert.ok(resultado.tokensTotal !== undefined && resultado.tokensTotal > 0, "esperava usage_metadata com tokens");
   } finally {
-    process.env.NODE_ENV = original;
+    process.env.NODE_ENV = originalNodeEnv;
+    process.env.REESCREVER_IA = originalReescreverIa;
   }
 });
