@@ -5,20 +5,23 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 import fastifyBearerAuth from "@fastify/bearer-auth";
 import { registrarRotasAtendimento } from "./rotas/atendimentos.js";
 import { registrarRotaFluxos } from "./rotas/fluxos.js";
+import { logger } from "./shared/logger.js";
 
 // Monta o Fastify sem chamar listen() — assim os testes usam app.inject()
 // direto, sem precisar subir servidor de verdade numa porta. Quem quer
 // rodar de verdade importa daqui e chama listen() (ver server.ts).
 export async function montarApp() {
-  // logger:true liga o pino (padrão do Fastify) — cada linha sai em JSON,
-  // com `reqId` gerado automático (correlação por REQUISIÇÃO — trocado pra
-  // UUID em vez do padrão sequencial "req-1"/"req-2", que reseta a cada
-  // restart do processo e pode colidir/confundir em logs agregados de
-  // múltiplas instâncias). Como uma conversa é várias requisições separadas
-  // no tempo, incluímos `chatId` manualmente em todo log — é ele que
-  // correlaciona TODAS as chamadas de uma mesma conversa entre si (reqId
-  // sozinho não faz isso, é só por requisição individual).
-  const app = Fastify({ logger: true, genReqId: () => randomUUID() });
+  // loggerInstance (não logger:true) — usa a MESMA instância pino de
+  // shared/logger.ts, compartilhada com módulos que não têm req.log
+  // (ia/, integracoes/, shared/checkpointer.ts — ver contexto.ts). Cada
+  // linha sai em JSON, com `reqId` gerado automático (correlação por
+  // REQUISIÇÃO — trocado pra UUID em vez do padrão sequencial "req-1"/
+  // "req-2", que reseta a cada restart do processo e pode colidir/confundir
+  // em logs agregados de múltiplas instâncias). Como uma conversa é várias
+  // requisições separadas no tempo, incluímos `chatId` manualmente em todo
+  // log — é ele que correlaciona TODAS as chamadas de uma mesma conversa
+  // entre si (reqId sozinho não faz isso, é só por requisição individual).
+  const app = Fastify({ loggerInstance: logger, genReqId: () => randomUUID() });
 
   // Code-first (gera o spec a partir do schema de cada rota, não de um yaml
   // mantido à mão) — repo pequeno/experimental, sem o guard de CI que o back

@@ -1,6 +1,8 @@
 import { ChatBedrockConverse } from "@langchain/aws";
 import { AIMessage } from "@langchain/core/messages";
 import { z } from "zod";
+import { logger } from "../shared/logger.js";
+import { contextoAtual } from "../shared/contexto.js";
 
 // Reescreve o TEXTO de uma pergunta (deixa mais natural) sem mudar O QUE é
 // perguntado — o campo/ordem continuam 100% determinísticos no grafo, só a
@@ -74,7 +76,7 @@ export async function reescreverPergunta(campo: string, objetivoBase: string): P
       tokensTotal: uso?.total_tokens,
     };
   } catch (err) {
-    console.error(`[reescrever] falha ao reescrever "${campo}", usando texto original:`, err);
+    logger.error({ ...contextoAtual(), campo, err }, "[reescrever] falha ao reescrever, usando texto original");
     return { texto: objetivoBase, viaIA: false };
   }
 }

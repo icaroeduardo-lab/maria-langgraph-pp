@@ -169,7 +169,11 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const chatId = body?.chatId || randomUUID();
       if (chatIdGerado) req.log.warn({ fluxoId, chatId }, "chatId ausente na requisição — gerado UUID (só permitido em NODE_ENV=test)");
 
-      const config = { configurable: { thread_id: chatId } };
+      // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
+      // (shared/contexto.ts) correlacionar os logs de dentro dos nós do
+      // grafo (verde.ts/reescrever.ts/extrair.ts) com o fluxo certo, além
+      // do chatId (thread_id).
+      const config = { configurable: { thread_id: chatId, fluxoId } };
 
       // Idempotente: se esse chatId JÁ tem atendimento em andamento, devolve
       // o estado atual (igual ao GET) — NUNCA chama invoke({}) de novo. Bug
@@ -225,7 +229,11 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const fluxo = buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
-      const config = { configurable: { thread_id: chatId } };
+      // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
+      // (shared/contexto.ts) correlacionar os logs de dentro dos nós do
+      // grafo (verde.ts/reescrever.ts/extrair.ts) com o fluxo certo, além
+      // do chatId (thread_id).
+      const config = { configurable: { thread_id: chatId, fluxoId } };
       const estado = await fluxo.grafo.getState(config);
       const interrupt = estado.tasks?.[0]?.interrupts?.[0]?.value;
       const valores = (estado.values ?? {}) as ValoresAtendimento;
@@ -264,7 +272,11 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
 
       const body = req.body as { resposta?: string } | undefined;
 
-      const config = { configurable: { thread_id: chatId } };
+      // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
+      // (shared/contexto.ts) correlacionar os logs de dentro dos nós do
+      // grafo (verde.ts/reescrever.ts/extrair.ts) com o fluxo certo, além
+      // do chatId (thread_id).
+      const config = { configurable: { thread_id: chatId, fluxoId } };
       const estadoAnterior = await fluxo.grafo.getState(config);
       const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
       if (!isResuming) {

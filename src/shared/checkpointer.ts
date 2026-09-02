@@ -1,6 +1,7 @@
 import { MemorySaver } from "@langchain/langgraph";
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { logger } from "./logger.js";
 
 // Sem DATABASE_URL (ex: rodando os testes, que não carregam .env) cai pro
 // MemorySaver — checkpoint em memória, morre com o processo, mas mantém os
@@ -9,12 +10,12 @@ import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 async function criarCheckpointerReal(): Promise<BaseCheckpointSaver> {
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.warn("[checkpoint] DATABASE_URL ausente — usando MemorySaver (não persiste)");
+    logger.warn("[checkpoint] DATABASE_URL ausente — usando MemorySaver (não persiste)");
     return new MemorySaver();
   }
   const saver = PostgresSaver.fromConnString(url);
   await saver.setup(); // cria as tabelas de checkpoint se ainda não existirem
-  console.log("[checkpoint] PostgresSaver conectado");
+  logger.info("[checkpoint] PostgresSaver conectado");
   return saver;
 }
 

@@ -1,4 +1,6 @@
 import type { DadosApenado, DadosProcesso } from "../shared/types.js";
+import { logger } from "../shared/logger.js";
+import { contextoAtual } from "../shared/contexto.js";
 
 // TODO: VERDE_JWT_TOKEN é temporário (emitido como app "Tykhe" pelo Verde,
 // expira 2026-09-12) — precisa de credencial própria da Maria antes disso.
@@ -19,7 +21,7 @@ interface ApenadoResponseVerde {
 
 export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
   if (!VERDE_JWT_TOKEN) {
-    console.warn("[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
     // RG "000000000" simula "não encontrado" no mock (pra testar o fluxo de
     // retry sem depender do Verde real) — qualquer outro RG "acha" a pessoa
     // de teste.
@@ -38,7 +40,7 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      console.warn(`[verde] apenado: HTTP ${res.status}`);
+      logger.warn({ ...contextoAtual(), status: res.status }, "[verde] apenado: HTTP não-ok");
       return { encontrado: false };
     }
     const corpo = (await res.json()) as ApenadoResponseVerde;
@@ -55,7 +57,7 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       situacao: corpo.dados.situacao,
     };
   } catch (err) {
-    console.error("[verde] apenado: falha na chamada:", err);
+    logger.error({ ...contextoAtual(), err }, "[verde] apenado: falha na chamada");
     return { encontrado: false };
   }
 }
@@ -80,7 +82,7 @@ interface ProcessoResponseVerde {
 // informação complementar pra Tykhe, não um gate de identificação.
 export async function consultarProcesso(numero: string): Promise<DadosProcesso> {
   if (!VERDE_JWT_TOKEN) {
-    console.warn("[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
     return { encontrado: true, id: 999999, origem: "e-Proc (mock)", nomeAssunto: "Processo de Teste" };
   }
   try {
@@ -94,7 +96,7 @@ export async function consultarProcesso(numero: string): Promise<DadosProcesso> 
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      console.warn(`[verde] processo: HTTP ${res.status}`);
+      logger.warn({ ...contextoAtual(), status: res.status }, "[verde] processo: HTTP não-ok");
       return { encontrado: false };
     }
     const corpo = (await res.json()) as ProcessoResponseVerde;
@@ -109,7 +111,7 @@ export async function consultarProcesso(numero: string): Promise<DadosProcesso> 
       movimentos: corpo.dados.movimentos,
     };
   } catch (err) {
-    console.error("[verde] processo: falha na chamada:", err);
+    logger.error({ ...contextoAtual(), err }, "[verde] processo: falha na chamada");
     return { encontrado: false };
   }
 }
