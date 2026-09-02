@@ -26,8 +26,8 @@ estrutura original). Reescreva o tom/fraseado, não a ordem das informações.`;
 export interface ResultadoReescrita {
   texto: string;
   // false = a IA falhou e caiu no texto original (objetivoBase) — sinaliza
-  // pro chamador (graph.ts -> log estruturado em app.ts) se essa pergunta
-  // específica saiu reescrita ou não, sem precisar comparar string.
+  // pro chamador (fluxos/*/graph.ts -> log estruturado em rotas/atendimentos.ts)
+  // se essa pergunta específica saiu reescrita ou não, sem precisar comparar string.
   viaIA: boolean;
   // ausente quando viaIA:false (não teve chamada de verdade, não gastou nada).
   tokensEntrada?: number;
@@ -39,11 +39,11 @@ export interface ResultadoReescrita {
 // original (`objetivoBase`) — nunca deixa a pergunta sumir por causa disso.
 //
 // NODE_ENV=test pula a chamada de verdade (mesmo padrão já usado pro chatId
-// em app.ts) — sem isso a suíte de testes fica lenta (2-6s por pergunta,
-// Bedrock real), gasta dinheiro à toa a cada `pnpm test`, E vira frágil
-// (texto reescrito varia entre execuções, quebra assert de texto fixo).
-// Testar a reescrita de verdade fica pra um teste isolado que força
-// NODE_ENV != "test" de propósito (ver test/reescrever.test.ts).
+// em rotas/atendimentos.ts) — sem isso a suíte de testes fica lenta (2-6s por
+// pergunta, Bedrock real), gasta dinheiro à toa a cada `pnpm test`, E vira
+// frágil (texto reescrito varia entre execuções, quebra assert de texto
+// fixo). Testar a reescrita de verdade fica pra um teste isolado que força
+// NODE_ENV != "test" de propósito (ver test-integracao/reescrever.test.ts).
 //
 // REESCREVER_IA desligado por padrão (2026-08-31) — decisão explícita do
 // usuário depois de ver reescrita com fraseado estranho ("Essa é o Fulano
@@ -77,4 +77,24 @@ export async function reescreverPergunta(campo: string, objetivoBase: string): P
     console.error(`[reescrever] falha ao reescrever "${campo}", usando texto original:`, err);
     return { texto: objetivoBase, viaIA: false };
   }
+}
+
+export interface CamposPerguntaPreparada {
+  perguntaAtualTexto: string;
+  perguntaAtualViaIA: boolean;
+  perguntaAtualTokensTotal: number | undefined;
+}
+
+// Helper compartilhado entre TODOS os fluxos (fluxos/*/graph.ts) — cada
+// pergunta segue o padrão de 2 nós "preparar" (chama a IA 1x, escreve o
+// texto pronto em perguntaAtual*) + "pedir" (só lê o que já foi escrito e
+// pausa em interrupt()). Por quê 2 nós, não 1: código ANTES de interrupt()
+// no MESMO nó roda de novo toda vez que aquela pausa é retomada (gotcha real
+// do LangGraph — "resume" replay o nó do início; interrupt() só para de
+// pausar depois de já ter devolvido o valor uma vez). Se a chamada à IA
+// tivesse dentro do nó que pausa, ela rodaria de novo (gastando Bedrock à
+// toa) em toda resposta.
+export async function prepararPergunta(campo: string, textoBase: string): Promise<CamposPerguntaPreparada> {
+  const { texto, viaIA, tokensTotal } = await reescreverPergunta(campo, textoBase);
+  return { perguntaAtualTexto: texto, perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal };
 }

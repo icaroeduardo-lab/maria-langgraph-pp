@@ -3,175 +3,8 @@ import Fastify from "fastify";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 import fastifyBearerAuth from "@fastify/bearer-auth";
-import { Command } from "@langchain/langgraph";
-import { grafo } from "./graph.js";
-import type { DadosApenado, DadosProcesso } from "./state.js";
-
-interface InterruptValue {
-  pergunta: string;
-  tipo: string;
-  opcoes?: string[];
-}
-
-interface Links {
-  self: { href: string };
-  responder?: { href: string; method: "POST" };
-}
-
-// Nível 3 de Richardson (HATEOAS): toda resposta carrega `_links` com as
-// próximas ações válidas dado o estado ATUAL — não fixo por rota. Enquanto
-// `em_andamento`, existe "responder"; concluído/handoff, só sobra "self"
-// (não tem mais o que fazer nesse atendimento pela API). O cliente decide o
-// que fazer olhando os links, não hardcoding regra de URL.
-function montarLinks(chatId: string, status: string): Links {
-  const links: Links = { self: { href: `/atendimentos/${chatId}` } };
-  if (status === "em_andamento") {
-    links.responder = { href: `/atendimentos/${chatId}/respostas`, method: "POST" };
-  }
-  return links;
-}
-
-interface MetadadosAtendimento {
-  parentesco?: string;
-  temProcesso?: boolean;
-  numeroProcesso?: string;
-  dadosProcesso?: DadosProcesso;
-  rg?: string;
-  dadosApenado?: DadosApenado;
-  motivoHandoff?: string;
-}
-
-interface RespostaAtendimento {
-  resposta: string;
-  tipoResposta: string;
-  opcoes?: string[];
-  status: string;
-  // só presente quando status !== "em_andamento" — no meio da conversa os
-  // dados ainda estão incompletos, não faz sentido a Tykhe consumir isso
-  // antes do fluxo terminar. Em concluido/handoff_humano, é o que a Tykhe
-  // precisa pra seguir (agendamento ou repassar pro atendente humano) sem
-  // ter que reperguntar tudo de novo.
-  metadados?: MetadadosAtendimento;
-  _links: Links;
-}
-
-type ValoresAtendimento = Partial<PessoaPresaValores>;
-interface PessoaPresaValores {
-  statusFinal: string;
-  parentesco: string;
-  temProcesso: boolean;
-  numeroProcesso: string;
-  dadosProcesso: DadosProcesso;
-  rg: string;
-  dadosApenado: DadosApenado;
-  motivoHandoff: string;
-}
-
-// Compartilhado entre POST /atendimentos, GET /atendimentos/:chatId e
-// POST /atendimentos/:chatId/respostas — os 3 terminam no MESMO shape de
-// resposta, só muda como chegam no `interrupt`/`values`.
-function montarRespostaAtendimento(chatId: string, interrupt: InterruptValue | undefined, values: ValoresAtendimento): RespostaAtendimento {
-  if (interrupt) {
-    return {
-      resposta: interrupt.pergunta,
-      tipoResposta: interrupt.tipo,
-      opcoes: interrupt.opcoes,
-      status: "em_andamento",
-      _links: montarLinks(chatId, "em_andamento"),
-    };
-  }
-  const status = values.statusFinal ?? "concluido";
-  const mensagem =
-    status === "concluido"
-      ? "Show! Já confirmei os dados da pessoa presa. Vou seguir com o encaminhamento a partir daqui."
-      : "Não consegui confirmar os dados da pessoa presa. Vou encaminhar seu atendimento pra equipe verificar com mais calma.";
-  const metadados: MetadadosAtendimento = {
-    parentesco: values.parentesco,
-    temProcesso: values.temProcesso,
-    numeroProcesso: values.numeroProcesso,
-    dadosProcesso: values.dadosProcesso,
-    rg: values.rg,
-    dadosApenado: values.dadosApenado,
-    ...(values.motivoHandoff ? { motivoHandoff: values.motivoHandoff } : {}),
-  };
-  return { resposta: mensagem, tipoResposta: "texto", status, metadados, _links: montarLinks(chatId, status) };
-}
-
-function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
-  return (resultado as { __interrupt__?: Array<{ value: InterruptValue }> }).__interrupt__?.[0]?.value;
-}
-
-// Schema JSON (não Zod) — @fastify/swagger dynamic mode lê isso direto dos
-// options de cada rota pra montar o /docs. Espelha as interfaces acima à
-// mão (não tem geração automática TS→JSON Schema aqui, repo pequeno).
-const linksSchema = {
-  type: "object",
-  properties: {
-    self: { type: "object", properties: { href: { type: "string" } } },
-    responder: {
-      type: "object",
-      properties: { href: { type: "string" }, method: { type: "string", enum: ["POST"] } },
-    },
-  },
-} as const;
-
-const metadadosSchema = {
-  type: "object",
-  properties: {
-    parentesco: { type: "string" },
-    temProcesso: { type: "boolean" },
-    numeroProcesso: { type: "string" },
-    dadosProcesso: {
-      type: "object",
-      properties: {
-        encontrado: { type: "boolean" },
-        id: { type: "number" },
-        origem: { type: "string" },
-        instancia: { type: "number" },
-        nomeAssunto: { type: "string" },
-        nomeOrgaoJulgador: { type: "string" },
-        movimentos: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              titulo: { type: "string" },
-              data: { type: "string" },
-              descricao: { type: "string" },
-              traducao: { type: "string" },
-            },
-          },
-        },
-      },
-    },
-    rg: { type: "string" },
-    dadosApenado: {
-      type: "object",
-      properties: {
-        encontrado: { type: "boolean" },
-        idSeap: { type: "number" },
-        idPessoa: { type: "number" },
-        nome: { type: "string" },
-        situacao: { type: "string" },
-      },
-    },
-    motivoHandoff: { type: "string", enum: ["nome_nao_confirmado", "rg_nao_encontrado"] },
-  },
-} as const;
-
-const respostaAtendimentoSchema = {
-  type: "object",
-  properties: {
-    resposta: { type: "string", description: "Texto da pergunta (se em_andamento) ou mensagem final" },
-    tipoResposta: { type: "string", enum: ["texto", "sim_nao", "opcoes"] },
-    opcoes: { type: "array", items: { type: "string" } },
-    status: { type: "string", enum: ["em_andamento", "concluido", "handoff_humano"] },
-    metadados: { ...metadadosSchema, description: "Só presente quando status !== em_andamento" },
-    _links: linksSchema,
-  },
-} as const;
-
-const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
+import { registrarRotasAtendimento } from "./rotas/atendimentos.js";
+import { registrarRotaFluxos } from "./rotas/fluxos.js";
 
 // Monta o Fastify sem chamar listen() — assim os testes usam app.inject()
 // direto, sem precisar subir servidor de verdade numa porta. Quem quer
@@ -195,15 +28,19 @@ export async function montarApp() {
   await app.register(fastifySwagger, {
     openapi: {
       info: {
-        title: "Pessoa Presa — API (LangGraph nativo)",
-        description: "Ponte Tykhe↔Verde pro fluxo de identificação da pessoa presa. Nível 3 de Richardson (HATEOAS) — siga os `_links` de cada resposta.",
-        version: "0.1.0",
+        title: "Maria — API (LangGraph nativo)",
+        description:
+          "Ponte Tykhe↔Verde pros fluxos de atendimento. Todo atendimento vive em /atendimentos/:fluxoId — comece por GET /fluxos pra ver os ids disponíveis. Nível 3 de Richardson (HATEOAS) — siga os `_links` de cada resposta.",
+        version: "0.2.0",
       },
-      tags: [{ name: "atendimentos", description: "Ciclo de vida de um atendimento (thread do grafo)" }],
+      tags: [
+        { name: "fluxos", description: "Descoberta de quais fluxos existem e seus ids" },
+        { name: "atendimentos", description: "Ciclo de vida de um atendimento (thread do grafo), pra qualquer fluxo" },
+      ],
       // declara o esquema de auth pro Swagger UI mostrar o botão "Authorize"
       // — sem isso dá pra ver a rota no /docs mas não dá pra testar direto
       // ali (ficaria sempre 401). Cada rota protegida marca `security` no
-      // próprio schema (ver abaixo) pra herdar esse esquema.
+      // próprio schema pra herdar esse esquema.
       components: {
         securitySchemes: {
           bearerAuth: { type: "http", scheme: "bearer", description: "API_KEY — pedir no secret maria-langgraph-pp-prod/app" },
@@ -214,7 +51,7 @@ export async function montarApp() {
   await app.register(fastifySwaggerUi, { routePrefix: "/docs" });
 
   // GET /health — health check do target group do ALB (ECS). Sem side
-  // effect, não toca no grafo/banco — só confirma que o processo responde.
+  // effect, não toca em grafo/banco — só confirma que o processo responde.
   // Fica FORA do bloco protegido abaixo — o ALB não manda Bearer token.
   app.get("/health", { schema: { hide: true } }, async () => ({ status: "ok" }));
 
@@ -229,151 +66,8 @@ export async function montarApp() {
   await app.register(async (protegido) => {
     await protegido.register(fastifyBearerAuth, { keys: new Set([apiKey]) });
 
-    // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
-    // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
-    // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera
-    // UUID), pra facilitar teste sem inventar chatId toda hora.
-    protegido.post(
-    "/atendimentos",
-    {
-      schema: {
-        tags: ["atendimentos"],
-        security: [{ bearerAuth: [] }],
-        summary: "Cria um atendimento novo (1ª pergunta do fluxo)",
-        body: {
-          type: "object",
-          properties: { chatId: { type: "string", description: "Id atribuído pela Tykhe — obrigatório fora de NODE_ENV=test" } },
-        },
-        response: { 200: respostaAtendimentoSchema, 400: erroSchema },
-      },
-    },
-    async (req, reply) => {
-    const body = req.body as { chatId?: string } | undefined;
-    if (!body?.chatId && process.env.NODE_ENV !== "test") {
-      return reply.code(400).send({ erro: "chatId obrigatório" });
-    }
-    const chatIdGerado = !body?.chatId;
-    const chatId = body?.chatId || randomUUID();
-    if (chatIdGerado) req.log.warn({ chatId }, "chatId ausente na requisição — gerado UUID (só permitido em NODE_ENV=test)");
-
-    const config = { configurable: { thread_id: chatId } };
-
-    // Idempotente: se esse chatId JÁ tem atendimento em andamento, devolve o
-    // estado atual (igual ao GET) — NUNCA chama invoke({}) de novo. Bug real
-    // achado ao vivo 2026-08-31: invoke({}) num thread_id existente reinicia
-    // o grafo do zero (mesmo padrão do "NUNCA MUDAR" documentado no back
-    // antigo — invoke com input não-nulo/repetido apaga o checkpoint),
-    // apagando todo o progresso da conversa se a Tykhe chamar POST de novo
-    // (retry, reconexão) em vez de GET.
-    const estadoAnterior = await grafo.getState(config);
-    const interruptAnterior = estadoAnterior.tasks?.[0]?.interrupts?.[0]?.value as InterruptValue | undefined;
-    const valoresAnteriores = (estadoAnterior.values ?? {}) as ValoresAtendimento;
-    const jaExiste = !!interruptAnterior || Object.keys(valoresAnteriores).length > 0;
-
-    if (jaExiste) {
-      req.log.warn({ chatId }, "POST /atendimentos em chatId que já existe — devolvendo estado atual, sem reiniciar");
-      reply.code(200).header("Location", `/atendimentos/${chatId}`);
-      return montarRespostaAtendimento(chatId, interruptAnterior, valoresAnteriores);
-    }
-
-    req.log.info({ chatId }, "atendimento criado");
-    const resultado = await grafo.invoke({}, config);
-
-    const interrupt = extrairInterruptDoInvoke(resultado);
-    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
-      perguntaAtualViaIA?: boolean;
-      perguntaAtualTokensTotal?: number;
-    };
-    req.log.info({ chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
-
-    // 200, não 201 — a Tykhe só reconhece 200 como padrão de sucesso (pedido
-    // explícito, evita trabalho extra do lado deles). Abre mão do 201/Location
-    // "correto" do REST nível 3 em troca de compatibilidade com o consumidor real.
-    reply.code(200).header("Location", `/atendimentos/${chatId}`);
-    return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
-    }
-  );
-
-  // GET /atendimentos/:chatId — consulta o estado ATUAL, sem avançar nada
-  // (não chama invoke, só lê o checkpoint). 404 se esse chatId nunca foi
-  // criado (nunca teve um POST /atendimentos com esse id).
-    protegido.get(
-    "/atendimentos/:chatId",
-    {
-      schema: {
-        tags: ["atendimentos"],
-        security: [{ bearerAuth: [] }],
-        summary: "Consulta o estado atual (sem avançar o fluxo)",
-        params: { type: "object", properties: { chatId: { type: "string" } }, required: ["chatId"] },
-        response: { 200: respostaAtendimentoSchema, 404: erroSchema },
-      },
-    },
-    async (req, reply) => {
-    const { chatId } = req.params as { chatId: string };
-    const config = { configurable: { thread_id: chatId } };
-    const estado = await grafo.getState(config);
-    const interrupt = estado.tasks?.[0]?.interrupts?.[0]?.value as InterruptValue | undefined;
-    const valores = (estado.values ?? {}) as ValoresAtendimento;
-    const existe = !!interrupt || Object.keys(valores).length > 0;
-    if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
-    return montarRespostaAtendimento(chatId, interrupt, valores);
-    }
-  );
-
-  // POST /atendimentos/:chatId/respostas — envia uma resposta, avança o
-  // fluxo. 409 se esse chatId não existe ou já concluiu (não tem pergunta
-  // pendente esperando resposta) — HTTP status certo em vez de só um campo
-  // `status` no corpo, é a diferença entre nível 2 e nível 3 do REST.
-    protegido.post(
-    "/atendimentos/:chatId/respostas",
-    {
-      schema: {
-        tags: ["atendimentos"],
-        security: [{ bearerAuth: [] }],
-        summary: "Envia uma resposta, avança o fluxo pra próxima pergunta (ou conclui)",
-        params: { type: "object", properties: { chatId: { type: "string" } }, required: ["chatId"] },
-        body: {
-          type: "object",
-          properties: {
-            resposta: { type: "string", description: "\"true\"/\"false\" pra sim_nao, texto livre pras demais" },
-          },
-        },
-        response: { 200: respostaAtendimentoSchema, 409: erroSchema },
-      },
-    },
-    async (req, reply) => {
-    const { chatId } = req.params as { chatId: string };
-    const body = req.body as { resposta?: string } | undefined;
-
-    const config = { configurable: { thread_id: chatId } };
-    const estadoAnterior = await grafo.getState(config);
-    const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
-    if (!isResuming) {
-      return reply.code(409).send({ erro: "atendimento não existe ou já foi concluído — nada esperando resposta" });
-    }
-    req.log.info({ chatId }, "resposta recebida");
-
-    // resume sempre como string crua — pras perguntas sim_nao, a Tykhe manda
-    // literalmente "true"/"false" (não texto em português), e o nó
-    // (pedirTemProcesso/pedirConfirmaNome em graph.ts) compara === "true".
-    // Nada de resume:boolean aqui — Command({resume:false}) quebra no
-    // LangGraph (bug real, ver comentário em graph.ts).
-    const resultado = await grafo.invoke(new Command({ resume: body?.resposta ?? "" }), config);
-
-    const interrupt = extrairInterruptDoInvoke(resultado);
-    if (interrupt) {
-      const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
-        perguntaAtualViaIA?: boolean;
-        perguntaAtualTokensTotal?: number;
-      };
-      req.log.info({ chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
-    } else {
-      const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
-      req.log.info({ chatId, status }, "atendimento finalizado");
-    }
-    return montarRespostaAtendimento(chatId, interrupt, resultado as ValoresAtendimento);
-    }
-  );
+    registrarRotaFluxos(protegido);
+    registrarRotasAtendimento(protegido);
   });
 
   return app;

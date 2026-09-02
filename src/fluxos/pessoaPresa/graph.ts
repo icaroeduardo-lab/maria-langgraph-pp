@@ -1,25 +1,9 @@
-import { interrupt, StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
-import type { BaseCheckpointSaver } from "@langchain/langgraph";
-import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { type PessoaPresaStateType, type Pergunta, PessoaPresaState } from "./state.js";
-import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "./verde.js";
-import { reescreverPergunta } from "./reescrever.js";
-
-// Sem DATABASE_URL (ex: rodando os testes, que não carregam .env) cai pro
-// MemorySaver — checkpoint em memória, morre com o processo, mas mantém os
-// testes rápidos/isolados sem precisar de Postgres no ar. Com DATABASE_URL
-// (server.ts real), persiste de verdade — sobrevive a reinício/deploy.
-async function criarCheckpointer(): Promise<BaseCheckpointSaver> {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.warn("[checkpoint] DATABASE_URL ausente — usando MemorySaver (não persiste)");
-    return new MemorySaver();
-  }
-  const saver = PostgresSaver.fromConnString(url);
-  await saver.setup(); // cria as tabelas de checkpoint se ainda não existirem
-  console.log("[checkpoint] PostgresSaver conectado");
-  return saver;
-}
+import { interrupt, StateGraph, START, END } from "@langchain/langgraph";
+import { type PessoaPresaStateType, PessoaPresaState } from "./state.js";
+import type { Pergunta } from "../../shared/types.js";
+import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "../../integracoes/verde.js";
+import { prepararPergunta } from "../../ia/reescrever.js";
+import { criarCheckpointer } from "../../shared/checkpointer.js";
 
 // Normaliza a resposta de uma pergunta sim_nao. O contrato original previa
 // só "true"/"false" crus (a Tykhe manda isso) — mas na prática o fluxo dela
@@ -36,24 +20,6 @@ function respostaEhSim(resposta: string): boolean {
     .trim()
     .toLowerCase();
   return normalizado === "true" || normalizado === "sim" || normalizado === "s" || normalizado === "yes";
-}
-
-// Todas as 6 perguntas seguem o MESMO padrão de 2 nós: um "preparar" (chama
-// a IA, roda 1x, escreve o texto pronto em perguntaAtual*) e um "pedir" (só
-// lê o que já foi escrito e pausa em interrupt()).
-//
-// Por quê 2 nós, não 1: código ANTES de interrupt() no MESMO nó roda de novo
-// toda vez que aquela pausa é retomada (gotcha real do LangGraph — "resume"
-// replay o nó do início; interrupt() só para de pausar depois de já ter
-// devolvido o valor uma vez). Se a chamada à IA tivesse dentro do nó que
-// pausa, ela rodaria de novo (gastando Bedrock à toa) em toda resposta.
-//
-// Os campos perguntaAtualTexto/ViaIA/TokensTotal são COMPARTILHADOS entre
-// as 6 perguntas (não 1 campo por pergunta) — só uma fica pendente por vez,
-// o valor é sempre "a reescrita da pergunta que está prestes a pausar agora".
-async function prepararPergunta(campo: string, textoBase: string): Promise<Partial<PessoaPresaStateType>> {
-  const { texto, viaIA, tokensTotal } = await reescreverPergunta(campo, textoBase);
-  return { perguntaAtualTexto: texto, perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal };
 }
 
 async function prepararPerguntaTemProcesso(): Promise<Partial<PessoaPresaStateType>> {

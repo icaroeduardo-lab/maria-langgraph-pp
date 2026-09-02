@@ -1,4 +1,4 @@
-import type { DadosApenado, DadosProcesso } from "./state.js";
+import type { DadosApenado, DadosProcesso } from "../shared/types.js";
 
 // TODO: VERDE_JWT_TOKEN é temporário (emitido como app "Tykhe" pelo Verde,
 // expira 2026-09-12) — precisa de credencial própria da Maria antes disso.
@@ -74,10 +74,10 @@ interface ProcessoResponseVerde {
 }
 
 // Consulta o processo pelo número informado (só chamada quando temProcesso:
-// true — ver graph.ts). Diferente de consultarApenadoPorRg, NÃO trava o
-// fluxo: erro/não encontrado só fica registrado em dadosProcesso.encontrado,
-// sem retry nem pergunta de "tentar de novo" — é informação complementar
-// pra Tykhe, não um gate de identificação.
+// true — ver fluxos/pessoaPresa/graph.ts). Diferente de consultarApenadoPorRg,
+// NÃO trava o fluxo: erro/não encontrado só fica registrado em
+// dadosProcesso.encontrado, sem retry nem pergunta de "tentar de novo" — é
+// informação complementar pra Tykhe, não um gate de identificação.
 export async function consultarProcesso(numero: string): Promise<DadosProcesso> {
   if (!VERDE_JWT_TOKEN) {
     console.warn("[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");

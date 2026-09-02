@@ -2,7 +2,8 @@
   "node_version": "20",
   "dependencies": ["."],
   "graphs": {
-    "pessoa_presa": "./src/graph.ts:grafo"
+    "pessoa_presa": "./src/fluxos/pessoaPresa/graph.ts:grafo",
+    "violencia_domestica": "./src/fluxos/violenciaDomestica/graph.ts:grafo"
   },
   "env": ".env"
 }
