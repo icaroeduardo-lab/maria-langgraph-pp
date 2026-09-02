@@ -3,7 +3,21 @@ import { type PessoaPresaStateType, PessoaPresaState } from "./state.js";
 import type { Pergunta } from "../../shared/types.js";
 import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
+import { extrairCamposLivre } from "../../ia/extrair.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
+
+// Guard da extração livre — desligada por padrão, liga só com a env var
+// explícita. Esse guard decide se o grafo ENTRA no ramo de extração no
+// START (roteamentoInicial); com ele false, comportamento idêntico a antes
+// dessa feature existir. Só checa EXTRACAO_LIVRE_IA, NÃO NODE_ENV — o guard
+// de "não gastar Bedrock de verdade em teste" já mora dentro de
+// extrairCamposLivre (ia/extrair.ts), mesmo padrão de reescreverPergunta.
+// Duplicar o check de NODE_ENV aqui faria a flag nunca funcionar durante
+// `pnpm test` (que roda com NODE_ENV=test sempre) — bug real, achado pelos
+// testes de roteamento abaixo.
+function extracaoLivreHabilitada(): boolean {
+  return process.env.EXTRACAO_LIVRE_IA === "true";
+}
 
 // Normaliza a resposta de uma pergunta sim_nao. O contrato original previa
 // só "true"/"false" crus (a Tykhe manda isso) — mas na prática o fluxo dela
@@ -22,11 +36,53 @@ function respostaEhSim(resposta: string): boolean {
   return normalizado === "true" || normalizado === "sim" || normalizado === "s" || normalizado === "yes";
 }
 
-async function prepararPerguntaTemProcesso(): Promise<Partial<PessoaPresaStateType>> {
+// Pergunta livre no início do fluxo (opcional, ver extracaoLivreHabilitada)
+// — deixa a pessoa contar a situação com as próprias palavras. A extração
+// roda DEPOIS do interrupt() resolver, no mesmo nó que pausa (mesmo padrão
+// dos outros "pedir": pós-processar a resposta depois de retomar é seguro,
+// só o código ANTES do interrupt() reexecuta em todo resume — ver
+// prepararPergunta() em ia/reescrever.ts). Por isso não precisa de um nó
+// "preparar" + "extrair" separados feito as outras perguntas: a chamada de
+// extração já é o pós-processamento, roda só 1x.
+async function prepararPerguntaLivre(): Promise<Partial<PessoaPresaStateType>> {
+  return prepararPergunta(
+    "relatoLivre",
+    "Pode me contar a situação com suas palavras? Se já souber, pode falar o número do processo, o RG da pessoa presa e seu parentesco com ela — tudo de uma vez."
+  );
+}
+
+async function pedirLivre(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta:
+      state.perguntaAtualTexto ??
+      "Pode me contar a situação com suas palavras? Se já souber, pode falar o número do processo, o RG da pessoa presa e seu parentesco com ela — tudo de uma vez.",
+    tipo: "texto",
+  });
+  const extraido = await extrairCamposLivre(resposta);
+  return {
+    ...(extraido.temProcesso !== undefined ? { temProcesso: extraido.temProcesso } : {}),
+    ...(extraido.numeroProcesso !== undefined ? { numeroProcesso: extraido.numeroProcesso } : {}),
+    ...(extraido.rg !== undefined ? { rg: extraido.rg } : {}),
+    ...(extraido.parentesco !== undefined ? { parentesco: extraido.parentesco } : {}),
+  };
+}
+
+function roteamentoInicial(): "comExtracao" | "semExtracao" {
+  return extracaoLivreHabilitada() ? "comExtracao" : "semExtracao";
+}
+
+// temProcesso já pode vir preenchido da extração livre (pedirLivre, acima)
+// — bypass evita perguntar de novo o que a pessoa já contou. Com a extração
+// desligada (padrão), state.temProcesso nunca chega aqui definido antes da
+// hora, então esse `if` nunca dispara — comportamento idêntico a antes da
+// extração livre existir.
+async function prepararPerguntaTemProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.temProcesso !== undefined) return {};
   return prepararPergunta("temProcesso", "Você tem o número do processo da pessoa que está presa?");
 }
 
 async function pedirTemProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.temProcesso !== undefined) return {};
   // resume:boolean quebra no LangGraph quando o valor é `false` (bug real:
   // graph.invoke() trata resume falsy como "nenhum resume" — Command({resume:
   // false}) explode com "Received empty Command input"). Resume como string
@@ -39,11 +95,13 @@ async function pedirTemProcesso(state: PessoaPresaStateType): Promise<Partial<Pe
   return { temProcesso: respostaEhSim(resposta) };
 }
 
-async function prepararPerguntaNumeroProcesso(): Promise<Partial<PessoaPresaStateType>> {
+async function prepararPerguntaNumeroProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.numeroProcesso !== undefined) return {};
   return prepararPergunta("numeroProcesso", "Qual o número do processo? Informe apenas os números.");
 }
 
 async function pedirNumeroProcesso(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.numeroProcesso !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({
     pergunta: state.perguntaAtualTexto ?? "Qual o número do processo? Informe apenas os números.",
     tipo: "texto",
@@ -60,11 +118,23 @@ async function consultarProcesso(state: PessoaPresaStateType): Promise<Partial<P
   return { dadosProcesso: dados };
 }
 
-async function prepararPerguntaRg(): Promise<Partial<PessoaPresaStateType>> {
+// rg é reescrito a cada volta do retry loop (pedirRg roda de novo quando
+// tentativasRg>=1, ver perguntaTentarNovamente/depoisDePerguntaTentar) — um
+// bypass ingênuo tipo "if state.rg definido, pula" quebraria o retry (rg da
+// tentativa anterior, que FALHOU, faria pular a próxima pergunta). Bypass só
+// vale na tentativa 0 (RG ainda não tentado nenhuma vez) — é o único caso
+// em que "rg definido" significa "veio da extração", não "tentativa anterior".
+function rgVeioDaExtracao(state: PessoaPresaStateType): boolean {
+  return state.rg !== undefined && (state.tentativasRg ?? 0) === 0;
+}
+
+async function prepararPerguntaRg(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (rgVeioDaExtracao(state)) return {};
   return prepararPergunta("rg", "Qual o RG da pessoa presa? Informe apenas os números.");
 }
 
 async function pedirRg(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (rgVeioDaExtracao(state)) return {};
   const resposta = interrupt<Pergunta, string>({
     pergunta: state.perguntaAtualTexto ?? "Qual o RG da pessoa presa? Informe apenas os números.",
     tipo: "texto",
@@ -127,11 +197,13 @@ async function pedirConfirmaNome(state: PessoaPresaStateType): Promise<Partial<P
   return { confirmaNome: respostaEhSim(resposta) };
 }
 
-async function prepararPerguntaParentesco(): Promise<Partial<PessoaPresaStateType>> {
+async function prepararPerguntaParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.parentesco !== undefined) return {};
   return prepararPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
 }
 
 export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.parentesco !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({
     pergunta: state.perguntaAtualTexto ?? "Qual seu parentesco com a pessoa presa?",
     tipo: "texto",
@@ -159,6 +231,8 @@ function depoisDeConfirmarNome(state: PessoaPresaStateType): "concluir" | "naoCo
 }
 
 const grafo = new StateGraph(PessoaPresaState)
+  .addNode("prepararPerguntaLivre", prepararPerguntaLivre)
+  .addNode("pedirLivre", pedirLivre)
   .addNode("prepararPerguntaTemProcesso", prepararPerguntaTemProcesso)
   .addNode("pedirTemProcesso", pedirTemProcesso)
   .addNode("prepararPerguntaNumeroProcesso", prepararPerguntaNumeroProcesso)
@@ -175,7 +249,15 @@ const grafo = new StateGraph(PessoaPresaState)
   .addNode("pedirParentesco", pedirParentesco)
   .addNode("concluir", concluir)
   .addNode("naoConfirmado", naoConfirmado)
-  .addEdge(START, "prepararPerguntaTemProcesso")
+  // Roteamento condicional (não .addEdge fixo) é o que garante que, com a
+  // extração desligada (padrão), o grafo nem entra no ramo novo — vai direto
+  // pra prepararPerguntaTemProcesso, exatamente como antes dessa feature.
+  .addConditionalEdges(START, roteamentoInicial, {
+    comExtracao: "prepararPerguntaLivre",
+    semExtracao: "prepararPerguntaTemProcesso",
+  })
+  .addEdge("prepararPerguntaLivre", "pedirLivre")
+  .addEdge("pedirLivre", "prepararPerguntaTemProcesso")
   .addEdge("prepararPerguntaTemProcesso", "pedirTemProcesso")
   .addConditionalEdges("pedirTemProcesso", depoisDeTemProcesso, {
     pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",

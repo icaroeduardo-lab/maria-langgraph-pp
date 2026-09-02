@@ -156,3 +156,79 @@ test("RG não encontrado 3x seguidas → esgota tentativas, vai direto pro atend
   assert.equal(pergunta(rFinal), undefined, "não deve perguntar de novo — esgotou as 3 tentativas");
   assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano");
 });
+
+// Extração livre — campos pré-preenchidos no state inicial simulam "já veio
+// da extração" sem precisar chamar IA de verdade (isso é testado à parte,
+// em test-integracao/extrair.test.ts). O que importa aqui é o BYPASS: campo
+// já definido pula a pergunta correspondente, mas Verde e a confirmação de
+// nome continuam rodando normalmente — extração só pré-preenche, não pula
+// verificação nenhuma.
+test("extração livre: campos pré-preenchidos pulam a pergunta, mas Verde e confirmação continuam normais", async () => {
+  const config = novoConfig();
+  const r = await grafo.invoke(
+    { temProcesso: true, numeroProcesso: "0000088-95.2026.8.19.0010", rg: "11111111111", parentesco: "amigo" },
+    config
+  );
+  const p = pergunta(r);
+  assert.match(
+    p?.pergunta ?? "",
+    /Confirma que a pessoa presa é/,
+    "deveria pular direto pra confirmação de nome, sem perguntar temProcesso/numeroProcesso/rg/parentesco de novo"
+  );
+  const dadosProcesso = (r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso;
+  const dadosApenado = (r as { dadosApenado?: { encontrado: boolean } }).dadosApenado;
+  assert.equal(typeof dadosProcesso?.encontrado, "boolean", "consultarProcesso deveria rodar mesmo com numeroProcesso pré-preenchido");
+  assert.equal(dadosApenado?.encontrado, true, "consultarApenado deveria rodar mesmo com rg pré-preenchido");
+});
+
+test("extração livre: confirmação de nome NUNCA pula, mesmo com todos os campos pré-preenchidos", async () => {
+  const config = novoConfig();
+  const r = await grafo.invoke({ temProcesso: false, rg: "11111111111", parentesco: "amigo" }, config);
+  const p = pergunta(r);
+  assert.equal(p?.tipo, "sim_nao");
+  assert.match(p?.pergunta ?? "", /Confirma que a pessoa presa é/);
+});
+
+// Bug que esse teste evita reintroduzir: rg é REESCRITO a cada volta do
+// retry loop (pedirRg roda de novo quando tentativasRg>=1) — um bypass
+// ingênuo ("se rg definido, pula") quebraria o retry, porque o rg da
+// tentativa anterior (que FALHOU) também "está definido". O bypass só vale
+// na tentativa 0 — ver rgVeioDaExtracao() em graph.ts.
+test("extração livre: rg pré-preenchido que falha ainda entra no retry loop normalmente", async () => {
+  const config = novoConfig();
+  const r = await grafo.invoke({ temProcesso: false, rg: "000000000" }, config); // RG sentinela "não encontrado"
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /tentativa 1 de 3/, "deveria cair no retry normal, não travar por causa do bypass");
+});
+
+test("extração livre ligada (EXTRACAO_LIVRE_IA=true) — grafo pausa na pergunta livre primeiro", async () => {
+  const original = process.env.EXTRACAO_LIVRE_IA;
+  process.env.EXTRACAO_LIVRE_IA = "true";
+  try {
+    const config = novoConfig();
+    const r = await grafo.invoke({}, config);
+    const p = pergunta(r);
+    assert.equal(p?.tipo, "texto");
+    assert.match(p?.pergunta ?? "", /situação/);
+  } finally {
+    process.env.EXTRACAO_LIVRE_IA = original;
+  }
+});
+
+// NODE_ENV continua "test" mesmo com EXTRACAO_LIVRE_IA=true — extrairCamposLivre
+// não chama Bedrock de verdade (mesmo guard de reescreverPergunta), então
+// nada é extraído e o fluxo segue 100% normal depois da pergunta livre.
+test("extração livre ligada, mas NODE_ENV=test — não extrai nada de verdade, segue fluxo normal depois", async () => {
+  const original = process.env.EXTRACAO_LIVRE_IA;
+  process.env.EXTRACAO_LIVRE_IA = "true";
+  try {
+    const config = novoConfig();
+    await grafo.invoke({}, config); // pausa na pergunta livre
+    const r = await grafo.invoke(new Command({ resume: "meu marido tá preso, RG 11111111111, sou esposa" }), config);
+    const p = pergunta(r);
+    assert.equal(p?.tipo, "sim_nao");
+    assert.match(p?.pergunta ?? "", /número do processo/, "nada foi extraído (NODE_ENV=test) — deveria perguntar temProcesso normalmente");
+  } finally {
+    process.env.EXTRACAO_LIVRE_IA = original;
+  }
+});
