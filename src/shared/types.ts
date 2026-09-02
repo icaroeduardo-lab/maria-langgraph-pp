@@ -34,3 +34,25 @@ export interface DadosProcesso {
   nomeOrgaoJulgador?: string;
   movimentos?: MovimentoProcesso[];
 }
+
+export interface EnderecoDetalhado {
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  // usado pra decidir capital x outras cidades no fluxo violenciaDomestica
+  // (ver fluxos/violenciaDomestica/graph.ts) — comparado contra "Rio de Janeiro".
+  municipio?: string;
+  uf?: string;
+  cep?: string;
+}
+
+export interface DadosPessoa {
+  encontrado: boolean;
+  idPessoa?: number;
+  nome?: string;
+  nomeSocial?: string;
+  genero?: string;
+  endereco?: string;
+  enderecoDetalhado?: EnderecoDetalhado;
+}

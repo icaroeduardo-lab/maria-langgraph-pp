@@ -1,4 +1,4 @@
-import type { DadosApenado, DadosProcesso } from "../shared/types.js";
+import type { DadosApenado, DadosPessoa, DadosProcesso } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { contextoAtual } from "../shared/contexto.js";
 
@@ -112,6 +112,82 @@ export async function consultarProcesso(numero: string): Promise<DadosProcesso> 
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[verde] processo: falha na chamada");
+    return { encontrado: false };
+  }
+}
+
+interface PessoaResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: {
+    idPessoa?: number;
+    nome?: string;
+    nomeSocial?: string;
+    genero?: string;
+    endereco?: string;
+    enderecoDetalhado?: {
+      logradouro?: string;
+      numero?: string;
+      complemento?: string;
+      bairro?: string;
+      municipio?: string;
+      uf?: string;
+      cep?: string;
+    };
+  };
+}
+
+// Consulta dados do assistido (endereço incluso) pelo CPF — usado pelo fluxo
+// violenciaDomestica pra saber o município e decidir capital x outras cidades
+// (ver fluxos/violenciaDomestica/graph.ts). CPF aceito com ou sem pontuação,
+// a própria API do Verde tolera os dois formatos, sem precisar sanitizar aqui.
+export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // CPF "00000000000" simula "não encontrado" no mock, mesmo padrão do RG
+    // "000000000" em consultarApenadoPorRg — qualquer outro CPF "acha" a
+    // pessoa de teste, com município Rio de Janeiro (capital).
+    if (cpf === "00000000000") return { encontrado: false };
+    return {
+      encontrado: true,
+      idPessoa: 999999,
+      nome: "Pessoa de Teste (mock)",
+      genero: "Feminino",
+      endereco: "Rua de Teste, 123 (mock)",
+      enderecoDetalhado: { bairro: "Centro", municipio: "Rio de Janeiro", uf: "RJ", cep: "20000-000" },
+    };
+  }
+  try {
+    const res = await fetch(`${VERDE_API_URL}/pessoa?cpf=${encodeURIComponent(cpf)}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      // 404 (CPF não encontrado) e 422 (mais de uma pessoa encontrada) caem
+      // aqui junto — mesmo tratamento genérico de status não-ok dos outros 2
+      // métodos deste arquivo, sem distinguir motivo (repo pequeno, não vale
+      // ramificação extra por enquanto).
+      logger.warn({ ...contextoAtual(), status: res.status }, "[verde] pessoa: HTTP não-ok");
+      return { encontrado: false };
+    }
+    const corpo = (await res.json()) as PessoaResponseVerde;
+    if (!corpo.dados || corpo.dados.idPessoa === undefined) return { encontrado: false };
+    return {
+      encontrado: true,
+      idPessoa: corpo.dados.idPessoa,
+      nome: corpo.dados.nome,
+      nomeSocial: corpo.dados.nomeSocial,
+      genero: corpo.dados.genero,
+      endereco: corpo.dados.endereco,
+      enderecoDetalhado: corpo.dados.enderecoDetalhado,
+    };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err }, "[verde] pessoa: falha na chamada");
     return { encontrado: false };
   }
 }
