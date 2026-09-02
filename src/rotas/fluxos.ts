@@ -7,8 +7,8 @@ const fluxoSchema = {
 } as const;
 
 // GET /fluxos — a "estrutura de busca" de qual fluxo é qual: lista os ids
-// (uuid) disponíveis pra usar em /atendimentos/:fluxoId. Hoje lê do objeto
-// hardcoded em fluxos/index.ts (sem banco ainda); se um dia isso virar
+// (uuid) disponíveis pra usar como flowId em /atendimentos. Hoje lê do
+// objeto hardcoded em fluxos/index.ts (sem banco ainda); se um dia isso virar
 // tabela, essa rota passa a ler de lá — contrato (GET /fluxos → [{id,nome}])
 // não muda.
 export function registrarRotaFluxos(app: FastifyInstance): void {
@@ -18,7 +18,7 @@ export function registrarRotaFluxos(app: FastifyInstance): void {
       schema: {
         tags: ["fluxos"],
         security: [{ bearerAuth: [] }],
-        summary: "Lista os fluxos disponíveis e seus ids — use o id em /atendimentos/:fluxoId",
+        summary: "Lista os fluxos disponíveis e seus ids — use o id como flowId em /atendimentos",
         response: { 200: { type: "array", items: fluxoSchema } },
       },
     },

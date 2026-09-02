@@ -3,28 +3,88 @@ import assert from "node:assert/strict";
 import { montarApp } from "../../app.js";
 import { ID_VIOLENCIA_DOMESTICA } from "../index.js";
 
-// Mecânica genérica da rota já está coberta em test/app.test.ts (que, aliás,
-// usa ESTE fluxo como fixture por ser o mais simples). Aqui só o que é
-// específico do fluxo em si: texto da pergunta e shape de metadados.
+// Mecânica genérica da rota já está coberta em test/app.test.ts. Aqui só o
+// que é específico do fluxo em si: texto das perguntas, ordem de negócio,
+// shape de metadados, e o uso de dadosConhecidos (contrato Tykhe).
 
 const AUTH = { authorization: `Bearer ${process.env.API_KEY}` };
-const BASE = `/atendimentos/${ID_VIOLENCIA_DOMESTICA}`;
+const BASE = "/atendimentos";
+const FLOW_ID = ID_VIOLENCIA_DOMESTICA;
 
-test("fluxo violência doméstica: pergunta relato, conclui com relato nos metadados", async () => {
+let contador = 0;
+function novoChatId() {
+  contador += 1;
+  return `teste-vd-http-${contador}`;
+}
+
+test("POST cria atendimento → 1ª pergunta é sim_nao sobre ser vítima", async () => {
   const app = await montarApp();
-  const chatId = "teste-vd-http-1";
-  const criado = await app.inject({ method: "POST", url: BASE, payload: { chatId }, headers: AUTH });
-  assert.equal(criado.json().tipoResposta, "texto");
-  assert.match(criado.json().resposta, /o que está acontecendo/);
+  const chatId = novoChatId();
+  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  const body = res.json();
+  assert.equal(res.statusCode, 200);
+  assert.equal(body.tipoResposta, "sim_nao");
+  assert.match(body.resposta, /vítima de violência doméstica/);
+});
 
+test("não é vítima → handoff_humano, mensagem específica, metadados com motivoHandoff", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
   const res = await app.inject({
     method: "POST",
-    url: `${BASE}/${chatId}/respostas`,
-    payload: { resposta: "relato de teste" },
+    url: `${BASE}/respostas`,
+    payload: { chatId, resposta: "false" },
     headers: AUTH,
   });
   const body = res.json();
   assert.equal(res.statusCode, 200);
+  assert.equal(body.status, "handoff_humano");
+  assert.match(body.resposta, /destinado apenas para quem é vítima/);
+  assert.equal(body.metadados.motivoHandoff, "nao_e_vitima");
+});
+
+test("fluxo completo com RO → concluido, urgente_juizado, mensagem de urgência", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const responder = (resposta: string) =>
+    app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
+
+  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  await responder("true"); // é vítima
+  await responder("false"); // sem processo
+  const res = await responder("true"); // tem RO
+  const body = res.json();
+
+  assert.equal(res.statusCode, 200);
   assert.equal(body.status, "concluido");
-  assert.equal(body.metadados.relato, "relato de teste");
+  assert.equal(body.metadados.tipoEncaminhamento, "urgente_juizado");
+  assert.match(body.resposta, /com urgência/);
+});
+
+test("fluxo completo sem RO, cpf vindo em dadosConhecidos → não pergunta CPF, conclui nudem (mock Verde: capital)", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const responder = (resposta: string) =>
+    app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
+
+  await app.inject({
+    method: "POST",
+    url: BASE,
+    payload: {
+      chatId,
+      flowId: FLOW_ID,
+      dadosConhecidos: { cpf: "11111111111", idPessoa: 1, nome: "Teste", email: "teste@teste.com" },
+    },
+    headers: AUTH,
+  });
+  await responder("true"); // é vítima
+  await responder("false"); // sem processo
+  const res = await responder("false"); // sem RO — deveria pular direto pro desfecho, sem perguntar cpf
+  const body = res.json();
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(body.status, "concluido");
+  assert.equal(body.metadados.tipoEncaminhamento, "nudem");
+  assert.equal(body.metadados.dadosPessoa.encontrado, true);
 });

@@ -33,7 +33,7 @@ export async function montarApp() {
       info: {
         title: "Maria — API (LangGraph nativo)",
         description:
-          "Ponte Tykhe↔Verde pros fluxos de atendimento. Todo atendimento vive em /atendimentos/:fluxoId — comece por GET /fluxos pra ver os ids disponíveis. Nível 3 de Richardson (HATEOAS) — siga os `_links` de cada resposta.",
+          "Ponte Tykhe↔Verde pros fluxos de atendimento. Todo atendimento vive em /atendimentos — o campo flowId no body do POST de criação escolhe o fluxo (chamadas seguintes, GET e /respostas, resolvem sozinhas a partir do chatId); comece por GET /fluxos pra ver os ids disponíveis. Nível 3 de Richardson (HATEOAS) — siga os `_links` de cada resposta.",
         version: "0.2.0",
       },
       tags: [
