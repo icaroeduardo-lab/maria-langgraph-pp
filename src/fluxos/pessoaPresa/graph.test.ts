@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Command } from "@langchain/langgraph";
-import { grafo } from "../src/graph.js";
+import { grafo } from "./graph.js";
 
 // thread_id único por teste — grafo é singleton com MemorySaver compartilhado
 // entre todos os testes deste arquivo, thread_id diferente evita um teste

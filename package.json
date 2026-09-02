@@ -8,9 +8,9 @@
     "dev": "tsx watch src/server.ts",
     "dev:pretty": "tsx watch src/server.ts | pino-pretty",
     "start": "node dist/server.js",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "cross-env NODE_ENV=test API_KEY=teste-fixo-chave node --import tsx --test test/*.test.ts",
+    "test": "cross-env NODE_ENV=test API_KEY=teste-fixo-chave node --import tsx --test \"test/**/*.test.ts\" \"src/**/*.test.ts\"",
     "test:integracao": "node --import tsx --test test-integracao/*.test.ts",
     "studio": "npx @langchain/langgraph-cli dev",
     "logs:prod": "sh scripts/logs-prod.sh"
