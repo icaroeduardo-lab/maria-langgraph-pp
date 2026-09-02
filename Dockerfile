@@ -13,6 +13,13 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
+# node_modules separado, só com dependencies (sem typescript/tsx/etc) — é o
+# que vai pro runner. Independente do stage `build` (não usa nada dele), o
+# BuildKit roda os dois em paralelo.
+FROM base AS deps-prod
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-scripts --prod
+
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -20,7 +27,7 @@ RUN pnpm build
 
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=deps-prod /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 EXPOSE 3001
