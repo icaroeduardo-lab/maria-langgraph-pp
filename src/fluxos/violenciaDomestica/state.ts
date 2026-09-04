@@ -13,17 +13,28 @@ export const ViolenciaDomesticaState = Annotation.Root({
   temRegistroOcorrencia: Annotation<boolean | undefined>,
   // vem pronto no `dadosConhecidos` do POST /atendimentos (contrato Tykhe:
   // { cpf, idPessoa, nome, email }) — ver rotas/atendimentos.ts. Bypass
-  // evita perguntar de novo. Agora comum aos 2 ramos (com/sem RO) — os dois
+  // evita perguntar de novo. Comum aos 2 ramos (com/sem RO) — os dois
   // precisam de idPessoa pra consultar órgão, ver graph.ts.
   cpf: Annotation<string | undefined>,
   dadosPessoa: Annotation<DadosPessoa | undefined>,
-  // resultado de consultarOrgaosViolenciaDomestica (integracoes/verde.ts) —
-  // o PRIMEIRO item de `orgaos` é sempre o escolhido pra mensagem final,
-  // Verde já devolve em ordem de prioridade.
+  // ids de plantão(ões) vigente(s) agora (consultarPlantaoVigente) — vazio
+  // = fora de horário de plantão, usa consulta de órgão normal. Não vazio =
+  // usa consultarOrgaosPlantaoViolenciaDomestica em vez da normal.
+  plantaoIds: Annotation<number[] | undefined>,
+  // resultado de UMA das duas consultas de órgão (normal ou plantão,
+  // dependendo de plantaoIds) — o PRIMEIRO item de `orgaos` é sempre o
+  // escolhido, Verde já devolve em ordem de prioridade.
   orgaosViolenciaDomestica: Annotation<OrgaosViolenciaDomestica | undefined>,
+  // resultado de criarEncaminhamentoViolenciaDomestica (POST real no Verde)
+  // — só roda depois de achar órgão. encaminhamentoId preenchido só quando
+  // deu certo, vira "protocolo" na mensagem final.
+  encaminhamentoId: Annotation<number | undefined>,
+  encaminhamentoErro: Annotation<string | undefined>,
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
-  // só preenchido quando statusFinal:"handoff_humano".
-  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | undefined>,
+  // só preenchido quando statusFinal:"handoff_humano". falha_encaminhamento
+  // = achou o órgão certo mas o POST de encaminhamento de verdade falhou —
+  // não inventa sucesso pro usuário, manda pra atendente confirmar.
+  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | "falha_encaminhamento" | undefined>,
   // só preenchido quando statusFinal:"concluido".
   tipoEncaminhamento: Annotation<"padrao" | "urgente" | undefined>,
   // texto final específico do desfecho — sobrescreve o texto genérico

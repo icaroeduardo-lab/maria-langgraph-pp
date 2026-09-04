@@ -132,6 +132,75 @@ test("sem RO, CPF não encontrado no Verde → ainda assim encontra órgão (fal
   assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");
 });
 
+test("concluido de verdade inclui encaminhamentoId (POST real no Verde, mock retorna sucesso)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf
+  assert.equal((r as { encaminhamentoId?: number }).encaminhamentoId, 999999);
+  assert.match((r as { mensagemFinal?: string }).mensagemFinal ?? "", /Protocolo: 999999/);
+});
+
+test("falha ao criar encaminhamento de verdade (MOCK_ENCAMINHAMENTO_FALHA) → handoff_humano, motivo falha_encaminhamento", async () => {
+  const original = process.env.MOCK_ENCAMINHAMENTO_FALHA;
+  process.env.MOCK_ENCAMINHAMENTO_FALHA = "true";
+  try {
+    const config = novoConfig();
+    await grafo.invoke({}, config);
+    await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
+    const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf — acha órgão, mas encaminhar falha
+    assert.equal(pergunta(r), undefined);
+    assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
+    assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "falha_encaminhamento");
+    assert.equal((r as { encaminhamentoId?: number }).encaminhamentoId, undefined, "não deveria ter id, o encaminhamento falhou");
+  } finally {
+    process.env.MOCK_ENCAMINHAMENTO_FALHA = original;
+  }
+});
+
+// Em horário de plantão a regra de órgão muda — usa
+// consultarOrgaosPlantaoViolenciaDomestica em vez da consulta normal, RO
+// deixa de importar pra ESSA decisão (mas ainda decide urgente x padrão).
+test("plantão vigente (MOCK_PLANTAO_VIGENTE) → usa órgão de plantão, não o normal", async () => {
+  const original = process.env.MOCK_PLANTAO_VIGENTE;
+  process.env.MOCK_PLANTAO_VIGENTE = "true";
+  try {
+    const config = novoConfig();
+    await grafo.invoke({}, config);
+    await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
+    const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf
+    assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
+    const orgaos = (r as { orgaosViolenciaDomestica?: { orgaos: Array<{ nome: string }> } }).orgaosViolenciaDomestica;
+    assert.match(orgaos?.orgaos[0]?.nome ?? "", /Plantão/, "deveria ter usado o órgão de plantão, não o normal (Coordenação/Juizado)");
+  } finally {
+    process.env.MOCK_PLANTAO_VIGENTE = original;
+  }
+});
+
+test("plantão vigente + idPessoa não encontrado → sem órgão de plantão, handoff_humano", async () => {
+  const original = process.env.MOCK_PLANTAO_VIGENTE;
+  process.env.MOCK_PLANTAO_VIGENTE = "true";
+  try {
+    const config = novoConfig();
+    await grafo.invoke({}, config);
+    await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
+    const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+    assert.equal(pergunta(r), undefined);
+    assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
+    assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "sem_orgao_disponivel");
+  } finally {
+    process.env.MOCK_PLANTAO_VIGENTE = original;
+  }
+});
+
 test("cpf pré-preenchido em dadosConhecidos → não pergunta CPF de novo", async () => {
   const config = novoConfig();
   const r0 = await grafo.invoke({ cpf: "11111111111" }, config);

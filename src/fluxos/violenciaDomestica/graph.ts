@@ -2,13 +2,16 @@ import { interrupt, StateGraph, START, END } from "@langchain/langgraph";
 import { type ViolenciaDomesticaStateType, ViolenciaDomesticaState } from "./state.js";
 import type { OrgaoAtendimento, Pergunta } from "../../shared/types.js";
 import {
+  consultarOrgaosPlantaoViolenciaDomestica,
   consultarOrgaosViolenciaDomestica,
   consultarPessoaPorCpf,
+  consultarPlantaoVigente,
   consultarProcesso as consultarProcessoVerde,
+  criarEncaminhamentoViolenciaDomestica,
 } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
-import { MENSAGEM_NAO_VITIMA, MENSAGEM_SEM_ORGAO_DISPONIVEL } from "./api.js";
+import { MENSAGEM_FALHA_ENCAMINHAMENTO, MENSAGEM_NAO_VITIMA, MENSAGEM_SEM_ORGAO_DISPONIVEL } from "./api.js";
 
 // Mesma tolerância de respostas sim_nao de fluxos/pessoaPresa/graph.ts — a
 // Tykhe às vezes repassa "Sim"/"Não" literal em vez de "true"/"false" (bug
@@ -120,20 +123,34 @@ async function consultarPessoa(state: ViolenciaDomesticaStateType): Promise<Part
   return { dadosPessoa: dados };
 }
 
+// Sem parâmetro nenhum — dá pra rodar em qualquer ponto do fluxo, roda logo
+// depois de saber idPessoa pra já decidir qual consulta de órgão usar em
+// seguida. Vazio = fora de horário de plantão, segue fluxo normal.
+async function consultarPlantao(): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const plantoes = await consultarPlantaoVigente();
+  return { plantaoIds: plantoes.map((p) => p.id) };
+}
+
 // O Verde resolve TUDO pelo idPessoa+RO (endereço cadastrado, regra de
 // negócio deles) — ver consultarOrgaosViolenciaDomestica em
 // integracoes/verde.ts. Substitui a heurística antiga de comparar município
 // contra "Rio de Janeiro" — o Verde já sabe capital x outras cidades, DP x
-// Juizado x NUDEM, tudo.
+// Juizado x NUDEM, tudo. Em horário de plantão (plantaoIds não vazio), a
+// regra de órgão é outra — usa o endpoint de plantão em vez do normal,
+// RO deixa de importar nesse caso (endpoint de plantão nem recebe RO).
 async function consultarOrgaos(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   const idPessoa = state.dadosPessoa?.idPessoa ?? 0;
-  const resultado = await consultarOrgaosViolenciaDomestica(state.temRegistroOcorrencia ?? false, idPessoa);
+  const plantaoIds = state.plantaoIds ?? [];
+  const resultado =
+    plantaoIds.length > 0
+      ? await consultarOrgaosPlantaoViolenciaDomestica(plantaoIds, idPessoa)
+      : await consultarOrgaosViolenciaDomestica(state.temRegistroOcorrencia ?? false, idPessoa);
   return { orgaosViolenciaDomestica: resultado };
 }
 
-function depoisDeConsultarOrgaos(state: ViolenciaDomesticaStateType): "semOrgao" | "concluir" {
+function depoisDeConsultarOrgaos(state: ViolenciaDomesticaStateType): "semOrgao" | "prosseguir" {
   const semOrgao = state.orgaosViolenciaDomestica?.contactarCrc || !state.orgaosViolenciaDomestica?.orgaos.length;
-  return semOrgao ? "semOrgao" : "concluir";
+  return semOrgao ? "semOrgao" : "prosseguir";
 }
 
 // Único desfecho "sem órgão" documentado pelo Verde (RO:true sem nenhum
@@ -147,24 +164,60 @@ async function semOrgaoDisponivel(state: ViolenciaDomesticaStateType): Promise<P
   };
 }
 
-function montarMensagemEncaminhamento(orgao: OrgaoAtendimento, urgente: boolean): string {
+// Executa o encaminhamento de VERDADE (POST no Verde, cria registro real) —
+// só roda depois de já saber pra qual órgão vai (consultarOrgaos acima).
+// idOrgao/idLocalAtendimento vêm do PRIMEIRO órgão da lista (prioridade do
+// Verde); idAssunto não é enviado (confirmado com o time do Verde que não é
+// necessário pra esse fluxo).
+async function criarEncaminhamento(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const orgao = state.orgaosViolenciaDomestica?.orgaos[0];
+  const resultado = await criarEncaminhamentoViolenciaDomestica({
+    idPessoa: state.dadosPessoa?.idPessoa ?? 0,
+    idOrgao: orgao?.id ?? 0,
+    idLocalAtendimento: orgao?.enderecos?.[0]?.idLocalAtendimento,
+    urgente: !!state.temRegistroOcorrencia,
+  });
+  return resultado.sucesso
+    ? { encaminhamentoId: resultado.id }
+    : { encaminhamentoErro: resultado.erro ?? "erro desconhecido" };
+}
+
+function depoisDeCriarEncaminhamento(state: ViolenciaDomesticaStateType): "concluir" | "falhou" {
+  return state.encaminhamentoId !== undefined ? "concluir" : "falhou";
+}
+
+// Achou o órgão certo, mas o POST de encaminhamento de verdade falhou —
+// NÃO diz pro usuário que deu certo (mentira), manda pra atendente confirmar
+// manualmente. state.orgaosViolenciaDomestica ainda tem o órgão pretendido,
+// útil pro atendente ver nos metadados mesmo sem ter sido criado de fato.
+async function falhaEncaminhamento(): Promise<Partial<ViolenciaDomesticaStateType>> {
+  return {
+    statusFinal: "handoff_humano",
+    motivoHandoff: "falha_encaminhamento",
+    mensagemFinal: MENSAGEM_FALHA_ENCAMINHAMENTO,
+  };
+}
+
+function montarMensagemEncaminhamento(orgao: OrgaoAtendimento, urgente: boolean, encaminhamentoId: number | undefined): string {
   const municipio = orgao.enderecos?.[0]?.municipio;
   const localizacao = municipio ? ` (${municipio})` : "";
+  const protocolo = encaminhamentoId !== undefined ? ` Protocolo: ${encaminhamentoId}.` : "";
   return urgente
-    ? `Como você já tem Boletim de Ocorrência, vou encaminhar seu atendimento com urgência para ${orgao.nome}${localizacao} — sem necessidade de agendamento.`
-    : `Vou encaminhar seu caso para ${orgao.nome}${localizacao}.`;
+    ? `Como você já tem Boletim de Ocorrência, vou encaminhar seu atendimento com urgência para ${orgao.nome}${localizacao} — sem necessidade de agendamento.${protocolo}`
+    : `Vou encaminhar seu caso para ${orgao.nome}${localizacao}.${protocolo}`;
 }
 
 // tipoEncaminhamento "urgente" x "padrao" ainda é útil pra Tykhe (prioridade
 // de atendimento), mas o ÓRGÃO em si (nome/endereço) já vem certo do Verde —
-// não precisamos mais decidir NUDEM x Defensoria da Vítima aqui.
+// não precisamos mais decidir NUDEM x Defensoria da Vítima aqui. Só chega
+// aqui depois de criarEncaminhamento ter dado certo de verdade.
 async function concluir(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   const orgao = state.orgaosViolenciaDomestica?.orgaos[0];
   const urgente = !!state.temRegistroOcorrencia;
   return {
     statusFinal: "concluido",
     tipoEncaminhamento: urgente ? "urgente" : "padrao",
-    mensagemFinal: orgao ? montarMensagemEncaminhamento(orgao, urgente) : MENSAGEM_SEM_ORGAO_DISPONIVEL,
+    mensagemFinal: orgao ? montarMensagemEncaminhamento(orgao, urgente, state.encaminhamentoId) : MENSAGEM_SEM_ORGAO_DISPONIVEL,
   };
 }
 
@@ -182,8 +235,11 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addNode("prepararPerguntaCpf", prepararPerguntaCpf)
   .addNode("pedirCpf", pedirCpf)
   .addNode("consultarPessoa", consultarPessoa)
+  .addNode("consultarPlantao", consultarPlantao)
   .addNode("consultarOrgaos", consultarOrgaos)
   .addNode("semOrgaoDisponivel", semOrgaoDisponivel)
+  .addNode("criarEncaminhamento", criarEncaminhamento)
+  .addNode("falhaEncaminhamento", falhaEncaminhamento)
   .addNode("concluir", concluir)
   .addEdge(START, "prepararPerguntaEhVitima")
   .addEdge("prepararPerguntaEhVitima", "pedirEhVitima")
@@ -204,12 +260,18 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addEdge("pedirTemRO", "prepararPerguntaCpf")
   .addEdge("prepararPerguntaCpf", "pedirCpf")
   .addEdge("pedirCpf", "consultarPessoa")
-  .addEdge("consultarPessoa", "consultarOrgaos")
+  .addEdge("consultarPessoa", "consultarPlantao")
+  .addEdge("consultarPlantao", "consultarOrgaos")
   .addConditionalEdges("consultarOrgaos", depoisDeConsultarOrgaos, {
     semOrgao: "semOrgaoDisponivel",
-    concluir: "concluir",
+    prosseguir: "criarEncaminhamento",
   })
   .addEdge("semOrgaoDisponivel", END)
+  .addConditionalEdges("criarEncaminhamento", depoisDeCriarEncaminhamento, {
+    concluir: "concluir",
+    falhou: "falhaEncaminhamento",
+  })
+  .addEdge("falhaEncaminhamento", END)
   .addEdge("concluir", END)
   .compile({ checkpointer: await criarCheckpointer() });
 
