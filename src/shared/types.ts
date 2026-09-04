@@ -70,9 +70,8 @@ export interface EnderecoOrgao {
   bairro?: string;
   municipio?: string;
   uf?: string;
-  // usado no encaminhamento de verdade (POST /integra/encaminhamento/encaminhar,
-  // ainda não integrado — ver fluxos/violenciaDomestica/graph.ts) como
-  // idLocalAtendimento do órgão escolhido.
+  // usado no POST /integra/encaminhamento/encaminhar como idLocalAtendimento
+  // do órgão escolhido — ver criarEncaminhamentoViolenciaDomestica.
   idLocalAtendimento?: number;
   horariosUrgencia?: HorarioUrgencia[];
   horariosAtendimentoFormatado?: string;
@@ -95,4 +94,22 @@ export interface OrgaosViolenciaDomestica {
   // única). mensagemCrc vem pronta do Verde ("...ligar 129").
   contactarCrc?: boolean;
   mensagemCrc?: string;
+}
+
+// GET /integra/plantao/vigente — sem parâmetros, lista plantões ativos AGORA.
+// Vazio = fora de horário de plantão (fluxo normal). Não vazio = usa
+// consultarOrgaosPlantaoViolenciaDomestica em vez da consulta normal (regra
+// de órgão muda em plantão — ver fluxos/violenciaDomestica/graph.ts).
+export interface Plantao {
+  id: number;
+  tipo?: string;
+}
+
+export interface ResultadoEncaminhamento {
+  sucesso: boolean;
+  // preenchido só quando sucesso:true — id do encaminhamento criado de
+  // verdade no Verde, vira parte da mensagem final (protocolo).
+  id?: number;
+  // preenchido só quando sucesso:false.
+  erro?: string;
 }

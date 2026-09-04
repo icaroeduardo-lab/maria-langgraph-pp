@@ -69,6 +69,37 @@ test("fluxo completo com RO, cpf vindo em dadosConhecidos → concluido, urgente
   assert.equal(body.status, "concluido");
   assert.equal(body.metadados.tipoEncaminhamento, "urgente");
   assert.match(body.resposta, /Juizado/);
+  assert.equal(body.metadados.encaminhamentoId, 999999, "encaminhamento real (mock) deveria ter sido criado");
+  assert.match(body.resposta, /Protocolo: 999999/);
+});
+
+test("encaminhamento real falha (MOCK_ENCAMINHAMENTO_FALHA) → handoff_humano, não afirma sucesso falso", async () => {
+  const original = process.env.MOCK_ENCAMINHAMENTO_FALHA;
+  process.env.MOCK_ENCAMINHAMENTO_FALHA = "true";
+  try {
+    const app = await montarApp();
+    const chatId = novoChatId();
+    const responder = (resposta: string) =>
+      app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
+
+    await app.inject({
+      method: "POST",
+      url: BASE,
+      payload: { chatId, flowId: FLOW_ID, dadosConhecidos: { cpf: "11111111111" } },
+      headers: AUTH,
+    });
+    await responder("true"); // é vítima
+    await responder("false"); // sem processo
+    const res = await responder("true"); // tem RO — órgão encontrado, mas encaminhar falha
+    const body = res.json();
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(body.status, "handoff_humano");
+    assert.equal(body.metadados.motivoHandoff, "falha_encaminhamento");
+    assert.equal(body.metadados.encaminhamentoId, undefined);
+  } finally {
+    process.env.MOCK_ENCAMINHAMENTO_FALHA = original;
+  }
 });
 
 test("fluxo completo sem RO, sem dadosConhecidos → pergunta CPF, conclui padrão com órgão real (mock)", async () => {

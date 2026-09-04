@@ -12,6 +12,9 @@ export interface MetadadosViolenciaDomestica {
   orgaosViolenciaDomestica?: OrgaosViolenciaDomestica;
   tipoEncaminhamento?: string;
   motivoHandoff?: string;
+  // só presente quando o encaminhamento real (POST no Verde) deu certo —
+  // "protocolo" que a mensagem final também cita.
+  encaminhamentoId?: number;
 }
 
 const enderecoOrgaoSchema = {
@@ -101,7 +104,8 @@ export const metadadosSchemaViolenciaDomestica = {
       },
     },
     tipoEncaminhamento: { type: "string", enum: ["padrao", "urgente"] },
-    motivoHandoff: { type: "string", enum: ["nao_e_vitima", "sem_orgao_disponivel"] },
+    motivoHandoff: { type: "string", enum: ["nao_e_vitima", "sem_orgao_disponivel", "falha_encaminhamento"] },
+    encaminhamentoId: { type: "number" },
   },
 } as const;
 
@@ -116,6 +120,7 @@ export function extrairMetadadosViolenciaDomestica(values: Record<string, unknow
     orgaosViolenciaDomestica?: OrgaosViolenciaDomestica;
     tipoEncaminhamento?: string;
     motivoHandoff?: string;
+    encaminhamentoId?: number;
   };
   return {
     ehVitima: v.ehVitima,
@@ -127,6 +132,7 @@ export function extrairMetadadosViolenciaDomestica(values: Record<string, unknow
     orgaosViolenciaDomestica: v.orgaosViolenciaDomestica,
     ...(v.tipoEncaminhamento ? { tipoEncaminhamento: v.tipoEncaminhamento } : {}),
     ...(v.motivoHandoff ? { motivoHandoff: v.motivoHandoff } : {}),
+    ...(v.encaminhamentoId !== undefined ? { encaminhamentoId: v.encaminhamentoId } : {}),
   };
 }
 
@@ -140,6 +146,10 @@ export const MENSAGEM_NAO_VITIMA =
   "Esse atendimento é destinado apenas para quem é vítima da violência. Vou encaminhar você para um atendente humano.";
 export const MENSAGEM_SEM_ORGAO_DISPONIVEL =
   "Não encontrei um órgão disponível pra encaminhar seu caso agora. Por favor, ligue 129 pra Central de Relacionamento com o Cidadão.";
+// Achou o órgão certo, mas o POST de encaminhamento de verdade (Verde)
+// falhou — não afirma que deu certo, evita passar informação falsa.
+export const MENSAGEM_FALHA_ENCAMINHAMENTO =
+  "Identifiquei o órgão certo pro seu caso, mas tive um problema técnico ao registrar o encaminhamento. Vou passar seu atendimento pra equipe confirmar manualmente.";
 
 // Fallback genérico exigido pelo contrato FluxoConfig (fluxos/index.ts) —
 // todo desfecho real deste fluxo seta mensagemFinal (acima), então isso só
