@@ -34,3 +34,65 @@ export interface DadosProcesso {
   nomeOrgaoJulgador?: string;
   movimentos?: MovimentoProcesso[];
 }
+
+export interface EnderecoDetalhado {
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  cep?: string;
+}
+
+export interface DadosPessoa {
+  encontrado: boolean;
+  idPessoa?: number;
+  nome?: string;
+  nomeSocial?: string;
+  genero?: string;
+  endereco?: string;
+  enderecoDetalhado?: EnderecoDetalhado;
+}
+
+export interface HorarioUrgencia {
+  diaDaSemana?: string;
+  horaInicio?: string;
+  horaFim?: string;
+  informacaoComplementar?: string;
+}
+
+export interface EnderecoOrgao {
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  cep?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+  // usado no encaminhamento de verdade (POST /integra/encaminhamento/encaminhar,
+  // ainda não integrado — ver fluxos/violenciaDomestica/graph.ts) como
+  // idLocalAtendimento do órgão escolhido.
+  idLocalAtendimento?: number;
+  horariosUrgencia?: HorarioUrgencia[];
+  horariosAtendimentoFormatado?: string;
+  horariosUrgenciaFormatado?: string;
+}
+
+export interface OrgaoAtendimento {
+  id: number;
+  nome: string;
+  enderecos?: EnderecoOrgao[];
+}
+
+export interface OrgaosViolenciaDomestica {
+  encontrado: boolean;
+  // Verde já devolve em ordem de prioridade — o primeiro item é sempre o
+  // escolhido (ver fluxos/violenciaDomestica/graph.ts).
+  orgaos: OrgaoAtendimento[];
+  // true só quando indicacaoRO:true e o Verde não achou nenhum órgão — regra
+  // deles, RO:false sempre tem fallback (NUDEM > núcleo 1º atendimento > DP
+  // única). mensagemCrc vem pronta do Verde ("...ligar 129").
+  contactarCrc?: boolean;
+  mensagemCrc?: string;
+}

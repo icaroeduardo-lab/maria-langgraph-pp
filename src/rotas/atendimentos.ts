@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { Command } from "@langchain/langgraph";
 import { buscarFluxo, type FluxoConfig } from "../fluxos/index.js";
+import { obterAtendimentosStore } from "../shared/atendimentosDb.js";
 
 export interface InterruptValue {
   pergunta: string;
@@ -23,7 +24,7 @@ interface RespostaAtendimento {
   _links: Links;
 }
 
-type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string };
+type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string };
 
 // Contrato mínimo que qualquer grafo compilado do LangGraph precisa cumprir
 // pra plugar nessas rotas — evita amarrar esse módulo aos generics internos
@@ -38,10 +39,13 @@ export interface GrafoAtendimento {
   }>;
 }
 
-function montarLinks(fluxoId: string, chatId: string, status: string): Links {
-  const links: Links = { self: { href: `/atendimentos/${fluxoId}/${chatId}` } };
+// Nem self nem responder carregam flowId — a tabela `atendimentos`
+// (shared/atendimentosDb.ts) resolve flowId a partir do chatId sozinha, GET
+// e POST /respostas não precisam mais que o cliente mande de novo.
+function montarLinks(chatId: string, status: string): Links {
+  const links: Links = { self: { href: `/atendimentos/${chatId}` } };
   if (status === "em_andamento") {
-    links.responder = { href: `/atendimentos/${fluxoId}/${chatId}/respostas`, method: "POST" };
+    links.responder = { href: `/atendimentos/respostas`, method: "POST" };
   }
   return links;
 }
@@ -64,7 +68,7 @@ const linksSchema = {
 const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
 
 // metadados varia por fluxo — QUAL grafo (portanto qual schema exato) só se
-// sabe em runtime, lendo :fluxoId. Docs ficam genéricas aqui (não dá pra
+// sabe em runtime, lendo flowId. Docs ficam genéricas aqui (não dá pra
 // declarar um schema fixo por rota quando a rota atende qualquer fluxo); ver
 // fluxos/*/api.ts pro shape real de cada um.
 const respostaAtendimentoSchema = {
@@ -77,33 +81,25 @@ const respostaAtendimentoSchema = {
     metadados: {
       type: "object",
       additionalProperties: true,
-      description: "Shape depende do fluxo (:fluxoId, ver GET /fluxos) — só presente quando status !== em_andamento",
+      description: "Shape depende do fluxo (flowId, ver GET /fluxos) — só presente quando status !== em_andamento",
     },
     _links: linksSchema,
   },
 } as const;
 
-const paramsComFluxoSchema = {
+const flowIdSchema = { type: "string", format: "uuid", description: "Id do fluxo — ver GET /fluxos" } as const;
+
+const paramsComChatIdSchema = {
   type: "object",
-  properties: { fluxoId: { type: "string", format: "uuid", description: "Id do fluxo — ver GET /fluxos" } },
-  required: ["fluxoId"],
+  properties: { chatId: { type: "string" } },
+  required: ["chatId"],
 } as const;
 
-const paramsComFluxoEChatIdSchema = {
-  type: "object",
-  properties: {
-    fluxoId: { type: "string", format: "uuid", description: "Id do fluxo — ver GET /fluxos" },
-    chatId: { type: "string" },
-  },
-  required: ["fluxoId", "chatId"],
-} as const;
-
-// Compartilhado entre POST base, GET :chatId e POST :chatId/respostas — os
-// 3 terminam no MESMO shape de resposta, só muda como chegam no
+// Compartilhado entre POST base, GET :chatId e POST /respostas — os 3
+// terminam no MESMO shape de resposta, só muda como chegam no
 // `interrupt`/`values`.
 function montarRespostaAtendimento(
   fluxo: FluxoConfig,
-  fluxoId: string,
   chatId: string,
   interrupt: InterruptValue | undefined,
   values: ValoresAtendimento
@@ -114,17 +110,23 @@ function montarRespostaAtendimento(
       tipoResposta: interrupt.tipo,
       opcoes: interrupt.opcoes,
       status: "em_andamento",
-      _links: montarLinks(fluxoId, chatId, "em_andamento"),
+      _links: montarLinks(chatId, "em_andamento"),
     };
   }
   const status = values.statusFinal ?? "concluido";
-  const mensagem = status === "concluido" ? fluxo.mensagemConcluido : fluxo.mensagemHandoff;
+  // mensagemFinal (opcional, por fluxo) sobrescreve o texto genérico — usado
+  // por fluxos com mais de 1 desfecho possível de "concluido"/"handoff_humano"
+  // (ex: violenciaDomestica, que tem 3 tipos de encaminhamento com mensagens
+  // diferentes — ver fluxos/violenciaDomestica/graph.ts). Ausente (undefined),
+  // cai no texto único fluxo.mensagemConcluido/mensagemHandoff — comportamento
+  // idêntico a antes desse campo existir (pessoaPresa nunca seta isso).
+  const mensagem = values.mensagemFinal ?? (status === "concluido" ? fluxo.mensagemConcluido : fluxo.mensagemHandoff);
   return {
     resposta: mensagem,
     tipoResposta: "texto",
     status,
     metadados: fluxo.extrairMetadados(values),
-    _links: montarLinks(fluxoId, chatId, status),
+    _links: montarLinks(chatId, status),
   };
 }
 
@@ -132,42 +134,72 @@ function montarRespostaAtendimento(
 // próximas ações válidas dado o estado ATUAL — não fixo por rota. Enquanto
 // `em_andamento`, existe "responder"; concluído/handoff, só sobra "self".
 //
-// Rota é a MESMA pra qualquer fluxo — /atendimentos/:fluxoId/... — o
-// :fluxoId (uuid, ver fluxos/index.ts) escolhe qual grafo/schema usar em
-// runtime, via buscarFluxo(). Um fluxoId desconhecido dá 404 antes de
-// qualquer coisa (não confundir com o 404 de chatId — motivos diferentes).
+// Rota é a MESMA pra qualquer fluxo — /atendimentos/... — flowId (uuid, ver
+// fluxos/index.ts) escolhe o grafo. Só é OBRIGATÓRIO na criação (é o único
+// momento em que o servidor não tem como saber sozinho qual fluxo é); GET e
+// POST /respostas resolvem flowId a partir do chatId via a tabela
+// `atendimentos` (shared/atendimentosDb.ts) — decisão de design 2026-09-02,
+// depois de identificar que o checkpointer do LangGraph indexa só por
+// thread_id=chatId, sem separar por fluxo: sem essa tabela, o mesmo chatId
+// usado em 2 flowIds diferentes colidiria no mesmo checkpoint. A chave
+// primária chat_id da tabela bloqueia esse caso na criação (ver 409 abaixo).
 export function registrarRotasAtendimento(app: FastifyInstance): void {
-  // POST /atendimentos/:fluxoId — cria um atendimento novo (1ª pergunta do
-  // fluxo). chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) —
-  // SEMPRE obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa
-  // (gera UUID), pra facilitar teste sem inventar chatId toda hora.
+  // POST /atendimentos — cria um atendimento novo (1ª pergunta do fluxo).
+  // chatId vem no corpo (é a Tykhe quem atribui esse id, não nós) — SEMPRE
+  // obrigatório (produção E desenvolvimento); só NODE_ENV=test relaxa (gera
+  // UUID), pra facilitar teste sem inventar chatId toda hora. flowId é
+  // sempre obrigatório, em qualquer ambiente.
   app.post(
-    "/atendimentos/:fluxoId",
+    "/atendimentos",
     {
       schema: {
         tags: ["atendimentos"],
         security: [{ bearerAuth: [] }],
         summary: "Cria um atendimento novo (1ª pergunta do fluxo)",
-        params: paramsComFluxoSchema,
         body: {
           type: "object",
-          properties: { chatId: { type: "string", description: "Id atribuído pela Tykhe — obrigatório fora de NODE_ENV=test" } },
+          properties: {
+            chatId: { type: "string", description: "Id atribuído pela Tykhe — obrigatório fora de NODE_ENV=test" },
+            flowId: flowIdSchema,
+            dadosConhecidos: {
+              type: "object",
+              additionalProperties: true,
+              description:
+                "Campos que a Tykhe já sabe sobre quem está conversando (ex: cpf, idPessoa, nome, email) — pré-preenche o state inicial do grafo pra evitar perguntar de novo o que já é conhecido. Cada fluxo só lê os campos que declara no próprio state (fluxos/<nome>/state.ts); os demais são ignorados.",
+            },
+          },
         },
-        response: { 200: respostaAtendimentoSchema, 400: erroSchema, 404: erroSchema },
+        response: { 200: respostaAtendimentoSchema, 400: erroSchema, 404: erroSchema, 409: erroSchema },
       },
     },
     async (req, reply) => {
-      const { fluxoId } = req.params as { fluxoId: string };
+      const body = req.body as
+        | { chatId?: string; flowId?: string; dadosConhecidos?: Record<string, unknown> }
+        | undefined;
+
+      const fluxoId = body?.flowId;
+      if (!fluxoId) return reply.code(400).send({ erro: "flowId obrigatório" });
       const fluxo = buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
-      const body = req.body as { chatId?: string } | undefined;
       if (!body?.chatId && process.env.NODE_ENV !== "test") {
         return reply.code(400).send({ erro: "chatId obrigatório" });
       }
       const chatIdGerado = !body?.chatId;
       const chatId = body?.chatId || randomUUID();
       if (chatIdGerado) req.log.warn({ fluxoId, chatId }, "chatId ausente na requisição — gerado UUID (só permitido em NODE_ENV=test)");
+
+      // Registra chatId→flowId ANTES de tocar no grafo — se esse chatId já
+      // pertence a outro flowId, 409 aqui, sem chegar perto do checkpoint
+      // (ver comentário grande acima de registrarRotasAtendimento). Mesmo
+      // chatId+flowId de novo é idempotente (ok:true), cai no fluxo normal
+      // abaixo — que já sabe lidar com "chatId já existe" via getState.
+      const store = await obterAtendimentosStore();
+      const registro = await store.registrar(chatId, fluxoId);
+      if (!registro.ok) {
+        req.log.warn({ chatId, fluxoId, flowIdExistente: registro.flowIdExistente }, "chatId já pertence a outro flowId");
+        return reply.code(409).send({ erro: `chatId já está em uso pelo flowId ${registro.flowIdExistente}` });
+      }
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
       // (shared/contexto.ts) correlacionar os logs de dentro dos nós do
@@ -187,12 +219,12 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
 
       if (jaExiste) {
         req.log.warn({ fluxoId, chatId }, "POST em chatId que já existe — devolvendo estado atual, sem reiniciar");
-        reply.code(200).header("Location", `/atendimentos/${fluxoId}/${chatId}`);
-        return montarRespostaAtendimento(fluxo, fluxoId, chatId, interruptAnterior, valoresAnteriores);
+        reply.code(200).header("Location", `/atendimentos/${chatId}`);
+        return montarRespostaAtendimento(fluxo, chatId, interruptAnterior, valoresAnteriores);
       }
 
       req.log.info({ fluxoId, chatId }, "atendimento criado");
-      const resultado = await fluxo.grafo.invoke({}, config);
+      const resultado = await fluxo.grafo.invoke(body?.dadosConhecidos ?? {}, config);
 
       const interrupt = extrairInterruptDoInvoke(resultado);
       const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
@@ -205,27 +237,30 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       // (pedido explícito, evita trabalho extra do lado deles). Abre mão do
       // 201/Location "correto" do REST nível 3 em troca de compatibilidade
       // com o consumidor real.
-      reply.code(200).header("Location", `/atendimentos/${fluxoId}/${chatId}`);
-      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
+      reply.code(200).header("Location", `/atendimentos/${chatId}`);
+      return montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
 
-  // GET /atendimentos/:fluxoId/:chatId — consulta o estado ATUAL, sem
-  // avançar nada (não chama invoke, só lê o checkpoint). 404 se esse
-  // fluxoId/chatId nunca foi criado.
+  // GET /atendimentos/:chatId — consulta o estado ATUAL, sem avançar nada
+  // (não chama invoke, só lê o checkpoint). flowId vem da tabela
+  // `atendimentos` a partir do chatId — 404 se esse chatId nunca foi criado.
   app.get(
-    "/atendimentos/:fluxoId/:chatId",
+    "/atendimentos/:chatId",
     {
       schema: {
         tags: ["atendimentos"],
         security: [{ bearerAuth: [] }],
         summary: "Consulta o estado atual (sem avançar o fluxo)",
-        params: paramsComFluxoEChatIdSchema,
+        params: paramsComChatIdSchema,
         response: { 200: respostaAtendimentoSchema, 404: erroSchema },
       },
     },
     async (req, reply) => {
-      const { fluxoId, chatId } = req.params as { fluxoId: string; chatId: string };
+      const { chatId } = req.params as { chatId: string };
+      const store = await obterAtendimentosStore();
+      const fluxoId = await store.buscarFlowId(chatId);
+      if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
       const fluxo = buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
@@ -239,38 +274,44 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const valores = (estado.values ?? {}) as ValoresAtendimento;
       const existe = !!interrupt || Object.keys(valores).length > 0;
       if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, valores);
+      return montarRespostaAtendimento(fluxo, chatId, interrupt, valores);
     }
   );
 
-  // POST /atendimentos/:fluxoId/:chatId/respostas — envia uma resposta,
-  // avança o fluxo. 409 se esse chatId não existe ou já concluiu (não tem
-  // pergunta pendente esperando resposta) — HTTP status certo em vez de só
-  // um campo `status` no corpo, é a diferença entre nível 2 e nível 3 do
-  // REST.
+  // POST /atendimentos/respostas — envia uma resposta, avança o fluxo.
+  // chatId vai no BODY (não na URL); flowId vem da tabela `atendimentos` a
+  // partir do chatId, não precisa mandar de novo. 404 se o chatId nunca foi
+  // criado (nunca passou pela tabela); 409 se já existe mas não tem pergunta
+  // pendente (já concluiu) — status certo em vez de só um campo `status` no
+  // corpo, é a diferença entre nível 2 e nível 3 do REST.
   app.post(
-    "/atendimentos/:fluxoId/:chatId/respostas",
+    "/atendimentos/respostas",
     {
       schema: {
         tags: ["atendimentos"],
         security: [{ bearerAuth: [] }],
         summary: "Envia uma resposta, avança o fluxo pra próxima pergunta (ou conclui)",
-        params: paramsComFluxoEChatIdSchema,
         body: {
           type: "object",
           properties: {
+            chatId: { type: "string" },
             resposta: { type: "string", description: "\"true\"/\"false\" pra sim_nao, texto livre pras demais" },
           },
         },
-        response: { 200: respostaAtendimentoSchema, 404: erroSchema, 409: erroSchema },
+        response: { 200: respostaAtendimentoSchema, 400: erroSchema, 404: erroSchema, 409: erroSchema },
       },
     },
     async (req, reply) => {
-      const { fluxoId, chatId } = req.params as { fluxoId: string; chatId: string };
+      const body = req.body as { chatId?: string; resposta?: string } | undefined;
+
+      const chatId = body?.chatId;
+      if (!chatId) return reply.code(400).send({ erro: "chatId obrigatório" });
+
+      const store = await obterAtendimentosStore();
+      const fluxoId = await store.buscarFlowId(chatId);
+      if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
       const fluxo = buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
-
-      const body = req.body as { resposta?: string } | undefined;
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
       // (shared/contexto.ts) correlacionar os logs de dentro dos nós do
@@ -280,7 +321,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const estadoAnterior = await fluxo.grafo.getState(config);
       const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
       if (!isResuming) {
-        return reply.code(409).send({ erro: "atendimento não existe ou já foi concluído — nada esperando resposta" });
+        return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta" });
       }
       req.log.info({ fluxoId, chatId }, "resposta recebida");
 
@@ -301,7 +342,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
         req.log.info({ fluxoId, chatId, status }, "atendimento finalizado");
       }
-      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
+      return montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
 }

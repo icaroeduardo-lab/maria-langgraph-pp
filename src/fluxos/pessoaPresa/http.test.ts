@@ -16,12 +16,13 @@ function novoChatId() {
 }
 
 const AUTH = { authorization: `Bearer ${process.env.API_KEY}` };
-const BASE = `/atendimentos/${ID_PESSOA_PRESA}`;
+const BASE = "/atendimentos";
+const FLOW_ID = ID_PESSOA_PRESA;
 
 test("POST cria atendimento → 1ª pergunta é sim_nao sobre número do processo", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId }, headers: AUTH });
+  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
   const body = res.json();
   assert.equal(res.statusCode, 200);
   assert.equal(body.tipoResposta, "sim_nao");
@@ -29,22 +30,23 @@ test("POST cria atendimento → 1ª pergunta é sim_nao sobre número do process
   assert.match(body.resposta, /número do processo/);
 });
 
-// Regressão — bug real achado ao vivo 2026-08-31: a Tykhe chamando POST de
-// novo no MESMO chatId (retry/reconexão) reiniciava a conversa do zero. Aqui
-// além de idempotente (coberto genericamente em app.test.ts), confere que
-// continua na pergunta CERTA pro fluxo (não só "não muda de status").
+// Regressão — bug real achado ao vivo 2026-08-31: a Tykhe chamando POST
+// /atendimentos de novo no MESMO chatId (retry/reconexão) reiniciava a
+// conversa do zero. Aqui além de idempotente (coberto genericamente em
+// app.test.ts), confere que continua na pergunta CERTA pro fluxo (não só
+// "não muda de status").
 test("POST 2x no MESMO chatId não reinicia — continua na pergunta do RG, não volta pro início", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
-  await app.inject({ method: "POST", url: BASE, payload: { chatId }, headers: AUTH });
+  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
   await app.inject({
     method: "POST",
-    url: `${BASE}/${chatId}/respostas`,
-    payload: { resposta: "false" }, // sem processo → pula pro RG
+    url: `${BASE}/respostas`,
+    payload: { chatId, resposta: "false" }, // sem processo → pula pro RG
     headers: AUTH,
   });
 
-  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId }, headers: AUTH });
+  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
   const body = res.json();
   assert.equal(res.statusCode, 200);
   assert.match(body.resposta, /RG da pessoa presa/, "deveria continuar na pergunta do RG, não voltar pro início");
@@ -54,9 +56,9 @@ test("fluxo completo: termina concluido, metadados com dadosApenado/parentesco p
   const app = await montarApp();
   const chatId = novoChatId();
   const responder = (resposta: string) =>
-    app.inject({ method: "POST", url: `${BASE}/${chatId}/respostas`, payload: { resposta }, headers: AUTH });
+    app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
 
-  await app.inject({ method: "POST", url: BASE, payload: { chatId }, headers: AUTH });
+  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
   await responder("false"); // sem processo
   await responder("11111111111"); // RG
   await responder("true"); // confirma nome

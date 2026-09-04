@@ -25,7 +25,13 @@ variable "container_port" {
 variable "image_tag" {
   type        = string
   default     = "latest"
-  description = "Tag da imagem no ECR."
+  description = "Tag da imagem no ECR — ambiente prod (deploy em push pra main)."
+}
+
+variable "image_tag_release" {
+  type        = string
+  default     = "release"
+  description = "Tag da imagem no ECR — ambiente release (deploy em push pra develop). Separada de image_tag pra um deploy não disparar o outro ambiente à toa."
 }
 
 variable "api_cpu" {
