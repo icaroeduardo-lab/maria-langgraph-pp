@@ -58,18 +58,19 @@ test("sem processo → pula direto pra pergunta do RO", async () => {
   assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/);
 });
 
-test("tem RO → conclui urgente, sem perguntar CPF", async () => {
+// CPF agora é comum aos 2 ramos (com/sem RO) — os dois precisam de idPessoa
+// pra consultar órgão no Verde (decisão de design 2026-09-04, depois de
+// descobrir que RO:true também precisa consultar /orgao/violencia-domestica).
+test("depois do RO (tem RO), pergunta CPF — comum aos 2 ramos agora", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   const r = await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
-  assert.equal(pergunta(r), undefined);
-  assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
-  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente_juizado");
+  assert.match(pergunta(r)?.pergunta ?? "", /Qual o seu CPF/);
 });
 
-test("sem RO, cpf não veio em dadosConhecidos → pergunta CPF", async () => {
+test("depois do RO (sem RO), pergunta CPF também", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
@@ -78,30 +79,60 @@ test("sem RO, cpf não veio em dadosConhecidos → pergunta CPF", async () => {
   assert.match(pergunta(r)?.pergunta ?? "", /Qual o seu CPF/);
 });
 
-test("sem RO, município capital (mock Verde) → conclui nudem", async () => {
+test("tem RO, CPF válido → conclui urgente, mensagem cita o órgão real (mock)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf
+  assert.equal(pergunta(r), undefined);
+  assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
+  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
+  const orgaos = (r as { orgaosViolenciaDomestica?: { orgaos: Array<{ nome: string }> } }).orgaosViolenciaDomestica;
+  assert.match(orgaos?.orgaos[0]?.nome ?? "", /Juizado/);
+});
+
+test("tem RO, CPF não encontrado no Verde (idPessoa=0) → sem órgão, handoff_humano, motivo sem_orgao_disponivel", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
+  const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+  assert.equal(pergunta(r), undefined);
+  assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
+  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "sem_orgao_disponivel");
+});
+
+test("sem RO, CPF válido → conclui padrão, mensagem cita o órgão real (mock)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
-  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf (mock → Rio de Janeiro)
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf
   assert.equal(pergunta(r), undefined);
   assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
-  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "nudem");
+  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");
+  assert.match((r as { resposta?: string; mensagemFinal?: string }).mensagemFinal ?? "", /Coordenação de Defesa/);
 });
 
-test("sem RO, CPF não encontrado no Verde (sem município) → conclui defensoria_vitima_juizado, não nudem", async () => {
+// Sem RO sempre tem fallback no Verde (NUDEM > núcleo > DP única) — mesmo
+// com CPF não encontrado, mock não simula "sem órgão" nesse ramo (só existe
+// documentado com RO:true).
+test("sem RO, CPF não encontrado no Verde → ainda assim encontra órgão (fallback do Verde)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
   const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
-  assert.equal(pergunta(r), undefined);
-  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "defensoria_vitima_juizado");
+  assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
+  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");
 });
 
-test("sem RO, cpf pré-preenchido em dadosConhecidos → não pergunta CPF de novo", async () => {
+test("cpf pré-preenchido em dadosConhecidos → não pergunta CPF de novo", async () => {
   const config = novoConfig();
   const r0 = await grafo.invoke({ cpf: "11111111111" }, config);
   assert.match(pergunta(r0)?.pergunta ?? "", /vítima de violência doméstica/);
@@ -109,5 +140,5 @@ test("sem RO, cpf pré-preenchido em dadosConhecidos → não pergunta CPF de no
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   const r = await grafo.invoke(new Command({ resume: "false" }), config); // sem RO → deveria pular CPF
   assert.equal(pergunta(r), undefined, "cpf já veio pronto, não deveria pausar pra perguntar de novo");
-  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "nudem");
+  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");
 });

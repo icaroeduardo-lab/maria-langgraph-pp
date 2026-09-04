@@ -1,6 +1,6 @@
 // Shape do campo `metadados` da resposta HTTP pra esse fluxo especificamente
 // — mesmo padrão de fluxos/pessoaPresa/api.ts.
-import type { DadosPessoa, DadosProcesso } from "../../shared/types.js";
+import type { DadosPessoa, DadosProcesso, OrgaosViolenciaDomestica } from "../../shared/types.js";
 
 export interface MetadadosViolenciaDomestica {
   ehVitima?: boolean;
@@ -9,9 +9,24 @@ export interface MetadadosViolenciaDomestica {
   dadosProcesso?: DadosProcesso;
   temRegistroOcorrencia?: boolean;
   dadosPessoa?: DadosPessoa;
+  orgaosViolenciaDomestica?: OrgaosViolenciaDomestica;
   tipoEncaminhamento?: string;
   motivoHandoff?: string;
 }
+
+const enderecoOrgaoSchema = {
+  type: "object",
+  properties: {
+    logradouro: { type: "string" },
+    numero: { type: "string" },
+    complemento: { type: "string" },
+    cep: { type: "string" },
+    bairro: { type: "string" },
+    municipio: { type: "string" },
+    uf: { type: "string" },
+    idLocalAtendimento: { type: "number" },
+  },
+} as const;
 
 export const metadadosSchemaViolenciaDomestica = {
   type: "object",
@@ -66,8 +81,27 @@ export const metadadosSchemaViolenciaDomestica = {
         },
       },
     },
-    tipoEncaminhamento: { type: "string", enum: ["nudem", "defensoria_vitima_juizado", "urgente_juizado"] },
-    motivoHandoff: { type: "string", enum: ["nao_e_vitima"] },
+    orgaosViolenciaDomestica: {
+      type: "object",
+      properties: {
+        encontrado: { type: "boolean" },
+        contactarCrc: { type: "boolean" },
+        mensagemCrc: { type: "string" },
+        orgaos: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number" },
+              nome: { type: "string" },
+              enderecos: { type: "array", items: enderecoOrgaoSchema },
+            },
+          },
+        },
+      },
+    },
+    tipoEncaminhamento: { type: "string", enum: ["padrao", "urgente"] },
+    motivoHandoff: { type: "string", enum: ["nao_e_vitima", "sem_orgao_disponivel"] },
   },
 } as const;
 
@@ -79,6 +113,7 @@ export function extrairMetadadosViolenciaDomestica(values: Record<string, unknow
     dadosProcesso?: DadosProcesso;
     temRegistroOcorrencia?: boolean;
     dadosPessoa?: DadosPessoa;
+    orgaosViolenciaDomestica?: OrgaosViolenciaDomestica;
     tipoEncaminhamento?: string;
     motivoHandoff?: string;
   };
@@ -89,6 +124,7 @@ export function extrairMetadadosViolenciaDomestica(values: Record<string, unknow
     dadosProcesso: v.dadosProcesso,
     temRegistroOcorrencia: v.temRegistroOcorrencia,
     dadosPessoa: v.dadosPessoa,
+    orgaosViolenciaDomestica: v.orgaosViolenciaDomestica,
     ...(v.tipoEncaminhamento ? { tipoEncaminhamento: v.tipoEncaminhamento } : {}),
     ...(v.motivoHandoff ? { motivoHandoff: v.motivoHandoff } : {}),
   };
@@ -96,16 +132,14 @@ export function extrairMetadadosViolenciaDomestica(values: Record<string, unknow
 
 // Cada desfecho do grafo (graph.ts) seta um destes como mensagemFinal no
 // state — rotas/atendimentos.ts usa esse campo em vez do texto genérico
-// abaixo (ver montarRespostaAtendimento). Textos ainda não validados com o
-// time jurídico — revisar fraseado antes de produção.
+// abaixo (ver montarRespostaAtendimento). A mensagem de encaminhamento em si
+// (padrão/urgente) é montada dinamicamente em graph.ts::montarMensagemEncaminhamento,
+// usando o nome/endereço real do órgão devolvido pelo Verde — só os 2
+// desfechos "sem ação de negócio" (não é vítima, sem órgão) têm texto fixo.
 export const MENSAGEM_NAO_VITIMA =
   "Esse atendimento é destinado apenas para quem é vítima da violência. Vou encaminhar você para um atendente humano.";
-export const MENSAGEM_NUDEM =
-  "Como você ainda não tem Boletim de Ocorrência e mora na capital, vou encaminhar seu caso para o NUDEM.";
-export const MENSAGEM_DEFENSORIA_VITIMA_JUIZADO =
-  "Como você ainda não tem Boletim de Ocorrência, vou encaminhar seu caso para a Defensoria pela Vítima, junto ao Juizado de Violência Doméstica da sua região.";
-export const MENSAGEM_URGENTE_JUIZADO =
-  "Como você já tem Boletim de Ocorrência, vou encaminhar seu atendimento com urgência para o Juizado de Violência Doméstica competente — sem necessidade de agendamento.";
+export const MENSAGEM_SEM_ORGAO_DISPONIVEL =
+  "Não encontrei um órgão disponível pra encaminhar seu caso agora. Por favor, ligue 129 pra Central de Relacionamento com o Cidadão.";
 
 // Fallback genérico exigido pelo contrato FluxoConfig (fluxos/index.ts) —
 // todo desfecho real deste fluxo seta mensagemFinal (acima), então isso só

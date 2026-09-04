@@ -44,25 +44,7 @@ test("não é vítima → handoff_humano, mensagem específica, metadados com mo
   assert.equal(body.metadados.motivoHandoff, "nao_e_vitima");
 });
 
-test("fluxo completo com RO → concluido, urgente_juizado, mensagem de urgência", async () => {
-  const app = await montarApp();
-  const chatId = novoChatId();
-  const responder = (resposta: string) =>
-    app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
-
-  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
-  await responder("true"); // é vítima
-  await responder("false"); // sem processo
-  const res = await responder("true"); // tem RO
-  const body = res.json();
-
-  assert.equal(res.statusCode, 200);
-  assert.equal(body.status, "concluido");
-  assert.equal(body.metadados.tipoEncaminhamento, "urgente_juizado");
-  assert.match(body.resposta, /com urgência/);
-});
-
-test("fluxo completo sem RO, cpf vindo em dadosConhecidos → não pergunta CPF, conclui nudem (mock Verde: capital)", async () => {
+test("fluxo completo com RO, cpf vindo em dadosConhecidos → concluido, urgente, mensagem cita o órgão", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
   const responder = (resposta: string) =>
@@ -80,11 +62,32 @@ test("fluxo completo sem RO, cpf vindo em dadosConhecidos → não pergunta CPF,
   });
   await responder("true"); // é vítima
   await responder("false"); // sem processo
-  const res = await responder("false"); // sem RO — deveria pular direto pro desfecho, sem perguntar cpf
+  const res = await responder("true"); // tem RO — cpf já veio, não pergunta de novo
   const body = res.json();
 
   assert.equal(res.statusCode, 200);
   assert.equal(body.status, "concluido");
-  assert.equal(body.metadados.tipoEncaminhamento, "nudem");
+  assert.equal(body.metadados.tipoEncaminhamento, "urgente");
+  assert.match(body.resposta, /Juizado/);
+});
+
+test("fluxo completo sem RO, sem dadosConhecidos → pergunta CPF, conclui padrão com órgão real (mock)", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const responder = (resposta: string) =>
+    app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta }, headers: AUTH });
+
+  await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  await responder("true"); // é vítima
+  await responder("false"); // sem processo
+  const rCpf = await responder("false"); // sem RO → deveria perguntar CPF
+  assert.match(rCpf.json().resposta, /Qual o seu CPF/);
+  const res = await responder("11111111111"); // cpf
+  const body = res.json();
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(body.status, "concluido");
+  assert.equal(body.metadados.tipoEncaminhamento, "padrao");
   assert.equal(body.metadados.dadosPessoa.encontrado, true);
+  assert.match(body.resposta, /Coordenação de Defesa/);
 });
