@@ -32,9 +32,13 @@ data "aws_iam_policy_document" "github_actions_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
+      # GitHub inclui IDs numéricos imutáveis no sub (owner@id/repo@id), não
+      # só o nome — achado ao vivo 2026-09-04 decodificando o token real (ver
+      # passo de debug removido de deploy-release.yml). IDs não mudam se o
+      # repo/owner for renomeado, então é MAIS robusto que casar só pelo nome.
       values = [
-        "repo:icaroeduardo-lab/maria-langgraph-pp:ref:refs/heads/main",
-        "repo:icaroeduardo-lab/maria-langgraph-pp:ref:refs/heads/develop",
+        "repo:icaroeduardo-lab@276099947/maria-langgraph-pp@1347683221:ref:refs/heads/main",
+        "repo:icaroeduardo-lab@276099947/maria-langgraph-pp@1347683221:ref:refs/heads/develop",
       ]
     }
   }
