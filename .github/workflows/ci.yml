@@ -1,0 +1,30 @@
+name: CI
+
+# PR pra develop (fluxo normal) ou main (release develop→main) — gate antes
+# do merge. Cada deploy (deploy-release.yml / deploy-prod.yml) roda esses
+# mesmos checks de novo depois do merge, como segunda camada de defesa.
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Ativar pnpm (corepack, mesma versão do Dockerfile)
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Testes
+        run: pnpm test

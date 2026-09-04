@@ -59,7 +59,7 @@ resource "aws_ecs_task_definition" "api_release" {
 
   container_definitions = jsonencode([{
     name         = "api"
-    image        = "${aws_ecr_repository.api.repository_url}:${var.image_tag}"
+    image        = "${aws_ecr_repository.api.repository_url}:${var.image_tag_release}"
     essential    = true
     portMappings = [{ containerPort = var.container_port, protocol = "tcp" }]
     environment = [

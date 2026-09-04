@@ -1,0 +1,64 @@
+name: Deploy — produção
+
+# Dispara em todo push em main — ou seja, todo merge de PR develop→main
+# (release) ou hotfix/*→main (branch protection não deixa push direto lá).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write # necessário pro OIDC (aws-actions/configure-aws-credentials)
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: 185327115563.dkr.ecr.us-east-1.amazonaws.com/maria-langgraph-pp
+  IMAGE_TAG: latest # bate com variable.image_tag no Terraform
+  ECS_CLUSTER: maria-langgraph-pp
+  ECS_SERVICE: api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: corepack enable && corepack prepare pnpm@latest --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build e push da imagem
+        run: |
+          docker build -t "$ECR_REPO:$IMAGE_TAG" .
+          docker push "$ECR_REPO:$IMAGE_TAG"
+
+      - name: Forçar novo deployment no ECS
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment \
+            --region "$AWS_REGION"
+
+      - name: Esperar o serviço estabilizar
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION"
