@@ -21,8 +21,11 @@ resource "aws_iam_role_policy_attachment" "execution" {
 
 data "aws_iam_policy_document" "exec_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.app.arn]
+    actions = ["secretsmanager:GetSecretValue"]
+    # 2 secrets — ambiente atual (Verde homolog) + release (infra/terraform/release.tf,
+    # Verde produção) — mesmo execution role compartilhado pelos 2 (ver comentário
+    # grande no topo de release.tf).
+    resources = [aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.app_release.arn]
   }
 }
 
