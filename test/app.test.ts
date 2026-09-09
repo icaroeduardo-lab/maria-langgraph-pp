@@ -114,6 +114,19 @@ test("POST /atendimentos → 200, Location aponta pro recurso criado, _links.res
   assert.equal(body._links.responder.method, "POST");
 });
 
+// metadados/dadosColetados presentes em TODA resposta, inclusive
+// em_andamento (decisão 2026-09-09) — antes só apareciam no fim do fluxo.
+test("POST /atendimentos → metadados e dadosColetados presentes mesmo em_andamento", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  const body = res.json();
+  assert.equal(body.status, "em_andamento");
+  assert.equal(typeof body.metadados, "object");
+  assert.equal(typeof body.dadosColetados, "object");
+  assert.equal(body.dadosColetados.cpf, undefined, "cpf ainda não foi coletado nesse ponto");
+});
+
 // A tabela chatId→flowId (shared/atendimentosDb.ts) é o que existe pra
 // bloquear isso — sem ela, o mesmo chatId em 2 flowIds colidiria no mesmo
 // checkpoint do LangGraph (indexado só por thread_id).

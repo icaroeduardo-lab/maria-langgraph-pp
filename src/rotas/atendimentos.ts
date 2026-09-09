@@ -15,16 +15,33 @@ interface Links {
   responder?: { href: string; method: "POST" };
 }
 
+// Dados cross-fluxo úteis fora do state específico de cada um — hoje só
+// `cpf` (decisão 2026-09-09): serve pra quem for chamar uma API do Verde
+// direto (fora do fluxo) sem precisar re-perguntar o CPF que a própria
+// conversa já coletou. Cresce conforme mais campos desse tipo aparecerem;
+// NÃO é o mesmo que `metadados` (que é o state completo, específico de
+// cada fluxo, com schema próprio em fluxos/*/api.ts).
+export interface DadosColetados {
+  cpf?: string;
+}
+
 export interface RespostaAtendimento {
   resposta: string;
   tipoResposta: string;
   opcoes?: string[];
   status: string;
-  metadados?: object;
+  metadados: object;
+  dadosColetados: DadosColetados;
   _links: Links;
 }
 
-type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string };
+type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string; cpf?: string };
+
+function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
+  return {
+    ...(typeof values.cpf === "string" ? { cpf: values.cpf } : {}),
+  };
+}
 
 // Contrato mínimo que qualquer grafo compilado do LangGraph precisa cumprir
 // pra plugar nessas rotas — evita amarrar esse módulo aos generics internos
@@ -81,7 +98,12 @@ const respostaAtendimentoSchema = {
     metadados: {
       type: "object",
       additionalProperties: true,
-      description: "Shape depende do fluxo (flowId, ver GET /fluxos) — só presente quando status !== em_andamento",
+      description: "Shape depende do fluxo (flowId, ver GET /fluxos) — presente em toda resposta, reflete o state coletado até agora",
+    },
+    dadosColetados: {
+      type: "object",
+      properties: { cpf: { type: "string" } },
+      description: "Dados cross-fluxo já coletados (ex: CPF) — útil pra chamar Verde direto sem re-perguntar",
     },
     _links: linksSchema,
   },
@@ -104,12 +126,20 @@ function montarRespostaAtendimento(
   interrupt: InterruptValue | undefined,
   values: ValoresAtendimento
 ): RespostaAtendimento {
+  // metadados e dadosColetados vão em TODA resposta agora (decisão
+  // 2026-09-09) — antes só apareciam quando status !== em_andamento.
+  // fluxo.extrairMetadados já é seguro de chamar com state parcial (cada
+  // campo é opcional no schema de cada fluxo, ver fluxos/*/api.ts).
+  const metadados = fluxo.extrairMetadados(values);
+  const dadosColetados = montarDadosColetados(values);
   if (interrupt) {
     return {
       resposta: interrupt.pergunta,
       tipoResposta: interrupt.tipo,
       opcoes: interrupt.opcoes,
       status: "em_andamento",
+      metadados,
+      dadosColetados,
       _links: montarLinks(chatId, "em_andamento"),
     };
   }
@@ -125,7 +155,8 @@ function montarRespostaAtendimento(
     resposta: mensagem,
     tipoResposta: "texto",
     status,
-    metadados: fluxo.extrairMetadados(values),
+    metadados,
+    dadosColetados,
     _links: montarLinks(chatId, status),
   };
 }

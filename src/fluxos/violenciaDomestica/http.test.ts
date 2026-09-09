@@ -121,4 +121,19 @@ test("fluxo completo sem RO, sem dadosConhecidos → pergunta CPF, conclui padr�
   assert.equal(body.metadados.tipoEncaminhamento, "padrao");
   assert.equal(body.metadados.dadosPessoa.encontrado, true);
   assert.match(body.resposta, /Coordenação de Defesa/);
+  assert.equal(body.dadosColetados.cpf, "11111111111", "cpf coletado durante o fluxo deve aparecer em dadosColetados");
+});
+
+test("cpf já vem em dadosConhecidos → aparece em dadosColetados desde a 1ª resposta, sem esperar o fim", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const res = await app.inject({
+    method: "POST",
+    url: BASE,
+    payload: { chatId, flowId: FLOW_ID, dadosConhecidos: { cpf: "22222222222" } },
+    headers: AUTH,
+  });
+  const body = res.json();
+  assert.equal(body.status, "em_andamento");
+  assert.equal(body.dadosColetados.cpf, "22222222222");
 });
