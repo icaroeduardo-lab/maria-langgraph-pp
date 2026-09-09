@@ -86,7 +86,11 @@ const linksSchema = {
   },
 } as const;
 
-const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
+// additionalProperties:true — o 409 de "atendimento já concluído" (ver
+// POST /atendimentos/respostas) enriquece o erro com resposta/status/
+// metadados/dadosColetados/flowId; sem isso o fast-json-stringify do
+// Fastify DESCARTA silenciosamente qualquer campo não declarado aqui.
+const erroSchema = { type: "object", properties: { erro: { type: "string" } }, additionalProperties: true } as const;
 
 // metadados varia por fluxo — QUAL grafo (portanto qual schema exato) só se
 // sabe em runtime, lendo flowId. Docs ficam genéricas aqui (não dá pra
@@ -390,7 +394,12 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const estadoAnterior = await fluxo.grafo.getState(config);
       const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
       if (!isResuming) {
-        return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta" });
+        // Já concluiu — não avança nada, mas devolve os dados coletados
+        // igual a um GET, pra quem bateu nesse 409 não precisar de uma 2ª
+        // chamada só pra recuperar metadados/dadosColetados que já tinha.
+        const valoresFinais = (estadoAnterior.values ?? {}) as ValoresAtendimento;
+        const respostaFinal = montarRespostaAtendimento(fluxo, fluxoId, chatId, undefined, valoresFinais);
+        return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta", ...respostaFinal });
       }
       req.log.info({ fluxoId, chatId }, "resposta recebida");
 

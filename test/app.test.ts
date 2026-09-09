@@ -258,3 +258,25 @@ test("POST /atendimentos/respostas em chatId já concluído → 409", async () =
   const res = await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "qualquer coisa" }, headers: AUTH });
   assert.equal(res.statusCode, 409);
 });
+
+// Achado em uso real 2026-09-09: bater esse 409 não devia jogar fora o que
+// já tinha sido coletado — enriquece o erro com o mesmo corpo de um GET.
+test("POST /atendimentos/respostas em chatId já concluído → 409 enriquecido com metadados/dadosColetados/flowId", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  await app.inject({
+    method: "POST",
+    url: BASE,
+    payload: { chatId, flowId: FLOW_ID, dadosConhecidos: { cpf: "11111111111" } },
+    headers: AUTH,
+  });
+  await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "false" }, headers: AUTH });
+  const res = await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "qualquer coisa" }, headers: AUTH });
+  const body = res.json();
+  assert.equal(res.statusCode, 409);
+  assert.match(body.erro, /já foi concluído/);
+  assert.equal(body.flowId, FLOW_ID);
+  assert.equal(body.status, "handoff_humano");
+  assert.equal(body.dadosColetados.cpf, "11111111111", "não deveria perder o cpf já coletado só porque bateu 409");
+  assert.equal(typeof body.metadados, "object");
+});
