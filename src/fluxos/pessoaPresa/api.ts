@@ -3,13 +3,35 @@
 // o seu, plugado em rotas/atendimentos.ts via registrarRotasAtendimento().
 import type { DadosApenado, DadosProcesso } from "../../shared/types.js";
 
+// Recortes de DadosProcesso/DadosApenado — só os campos que outro sistema
+// vai consumir de verdade (payload de encaminhamento do fluxo prisional:
+// Origem do Processo, Nome, idProcesso, RG, Situação, Tipo de preso, Regime,
+// idPessoa, idSeap). Decisão 2026-09-09: dadosProcesso/dadosApenado
+// COMPLETOS (movimentos, instancia, nomeAssunto, nomeOrgaoJulgador,
+// encontrado) tinham campo demais expostos sem necessidade — corta aqui,
+// não no tipo interno (DadosProcesso/DadosApenado seguem completos pra
+// quem usa dentro do grafo).
+export interface DadosProcessoResumo {
+  id?: number;
+  origem?: string;
+}
+
+export interface DadosApenadoResumo {
+  idSeap?: number;
+  idPessoa?: number;
+  nome?: string;
+  situacao?: string;
+  tipoPreso?: string;
+  regime?: string;
+}
+
 export interface MetadadosPessoaPresa {
   parentesco?: string;
   temProcesso?: boolean;
   numeroProcesso?: string;
-  dadosProcesso?: DadosProcesso;
+  dadosProcesso?: DadosProcessoResumo;
   rg?: string;
-  dadosApenado?: DadosApenado;
+  dadosApenado?: DadosApenadoResumo;
   motivoHandoff?: string;
 }
 
@@ -25,31 +47,14 @@ export const metadadosSchemaPessoaPresa = {
     dadosProcesso: {
       type: "object",
       properties: {
-        encontrado: { type: "boolean" },
         id: { type: "number" },
         origem: { type: "string" },
-        instancia: { type: "number" },
-        nomeAssunto: { type: "string" },
-        nomeOrgaoJulgador: { type: "string" },
-        movimentos: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              titulo: { type: "string" },
-              data: { type: "string" },
-              descricao: { type: "string" },
-              traducao: { type: "string" },
-            },
-          },
-        },
       },
     },
     rg: { type: "string" },
     dadosApenado: {
       type: "object",
       properties: {
-        encontrado: { type: "boolean" },
         idSeap: { type: "number" },
         idPessoa: { type: "number" },
         nome: { type: "string" },
@@ -61,6 +66,16 @@ export const metadadosSchemaPessoaPresa = {
     motivoHandoff: { type: "string", enum: ["nome_nao_confirmado", "rg_nao_encontrado"] },
   },
 } as const;
+
+function resumirDadosProcesso(d: DadosProcesso | undefined): DadosProcessoResumo | undefined {
+  if (!d) return undefined;
+  return { id: d.id, origem: d.origem };
+}
+
+function resumirDadosApenado(d: DadosApenado | undefined): DadosApenadoResumo | undefined {
+  if (!d) return undefined;
+  return { idSeap: d.idSeap, idPessoa: d.idPessoa, nome: d.nome, situacao: d.situacao, tipoPreso: d.tipoPreso, regime: d.regime };
+}
 
 export function extrairMetadadosPessoaPresa(values: Record<string, unknown>): MetadadosPessoaPresa {
   const v = values as {
@@ -76,9 +91,9 @@ export function extrairMetadadosPessoaPresa(values: Record<string, unknown>): Me
     parentesco: v.parentesco,
     temProcesso: v.temProcesso,
     numeroProcesso: v.numeroProcesso,
-    dadosProcesso: v.dadosProcesso,
+    dadosProcesso: resumirDadosProcesso(v.dadosProcesso),
     rg: v.rg,
-    dadosApenado: v.dadosApenado,
+    dadosApenado: resumirDadosApenado(v.dadosApenado),
     ...(v.motivoHandoff ? { motivoHandoff: v.motivoHandoff } : {}),
   };
 }
