@@ -127,6 +127,28 @@ test("POST /atendimentos → metadados e dadosColetados presentes mesmo em_andam
   assert.equal(body.dadosColetados.cpf, undefined, "cpf ainda não foi coletado nesse ponto");
 });
 
+// flowId sempre presente na resposta (decisão 2026-09-09) — sem ele não dá
+// pra saber a qual fluxo o `metadados` pertence (schema difere por fluxo),
+// principalmente relevante pra quem chega via orquestrador sem saber de
+// antemão qual fluxo foi escolhido.
+test("flowId presente em toda resposta: criação, GET e respostas", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const criado = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  assert.equal(criado.json().flowId, FLOW_ID);
+
+  const get = await app.inject({ method: "GET", url: `${BASE}/${chatId}`, headers: AUTH });
+  assert.equal(get.json().flowId, FLOW_ID);
+
+  const resposta = await app.inject({
+    method: "POST",
+    url: `${BASE}/respostas`,
+    payload: { chatId, resposta: "false" },
+    headers: AUTH,
+  });
+  assert.equal(resposta.json().flowId, FLOW_ID);
+});
+
 // A tabela chatId→flowId (shared/atendimentosDb.ts) é o que existe pra
 // bloquear isso — sem ela, o mesmo chatId em 2 flowIds colidiria no mesmo
 // checkpoint do LangGraph (indexado só por thread_id).

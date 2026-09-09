@@ -30,6 +30,10 @@ export interface RespostaAtendimento {
   tipoResposta: string;
   opcoes?: string[];
   status: string;
+  // sempre presente — metadados é fluxo-específico (schema diferente por
+  // fluxo, ver fluxos/*/api.ts), sem isso não dá pra saber a qual fluxo ele
+  // pertence quando não se sabe de antemão (ex: veio do orquestrador).
+  flowId: string;
   metadados: object;
   dadosColetados: DadosColetados;
   _links: Links;
@@ -95,6 +99,7 @@ const respostaAtendimentoSchema = {
     tipoResposta: { type: "string", enum: ["texto", "sim_nao", "opcoes"] },
     opcoes: { type: "array", items: { type: "string" } },
     status: { type: "string", enum: ["em_andamento", "concluido", "handoff_humano"] },
+    flowId: { type: "string", format: "uuid", description: "Fluxo a que esse atendimento pertence — identifica o schema de metadados" },
     metadados: {
       type: "object",
       additionalProperties: true,
@@ -122,6 +127,7 @@ const paramsComChatIdSchema = {
 // `interrupt`/`values`.
 function montarRespostaAtendimento(
   fluxo: FluxoConfig,
+  fluxoId: string,
   chatId: string,
   interrupt: InterruptValue | undefined,
   values: ValoresAtendimento
@@ -129,7 +135,9 @@ function montarRespostaAtendimento(
   // metadados e dadosColetados vão em TODA resposta agora (decisão
   // 2026-09-09) — antes só apareciam quando status !== em_andamento.
   // fluxo.extrairMetadados já é seguro de chamar com state parcial (cada
-  // campo é opcional no schema de cada fluxo, ver fluxos/*/api.ts).
+  // campo é opcional no schema de cada fluxo, ver fluxos/*/api.ts). flowId
+  // também sempre presente — sem ele não dá pra saber a qual fluxo o
+  // `metadados` pertence (schema difere por fluxo).
   const metadados = fluxo.extrairMetadados(values);
   const dadosColetados = montarDadosColetados(values);
   if (interrupt) {
@@ -138,6 +146,7 @@ function montarRespostaAtendimento(
       tipoResposta: interrupt.tipo,
       opcoes: interrupt.opcoes,
       status: "em_andamento",
+      flowId: fluxoId,
       metadados,
       dadosColetados,
       _links: montarLinks(chatId, "em_andamento"),
@@ -155,6 +164,7 @@ function montarRespostaAtendimento(
     resposta: mensagem,
     tipoResposta: "texto",
     status,
+    flowId: fluxoId,
     metadados,
     dadosColetados,
     _links: montarLinks(chatId, status),
@@ -218,7 +228,7 @@ export async function criarAtendimento(
     return {
       statusCode: 200,
       location: `/atendimentos/${chatId}`,
-      corpo: montarRespostaAtendimento(fluxo, chatId, interruptAnterior, valoresAnteriores),
+      corpo: montarRespostaAtendimento(fluxo, fluxoId, chatId, interruptAnterior, valoresAnteriores),
     };
   }
 
@@ -235,7 +245,7 @@ export async function criarAtendimento(
   return {
     statusCode: 200,
     location: `/atendimentos/${chatId}`,
-    corpo: montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento),
+    corpo: montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento),
   };
 }
 
@@ -333,7 +343,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const valores = (estado.values ?? {}) as ValoresAtendimento;
       const existe = !!interrupt || Object.keys(valores).length > 0;
       if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      return montarRespostaAtendimento(fluxo, chatId, interrupt, valores);
+      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, valores);
     }
   );
 
@@ -401,7 +411,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
         req.log.info({ fluxoId, chatId, status }, "atendimento finalizado");
       }
-      return montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento);
+      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
 }

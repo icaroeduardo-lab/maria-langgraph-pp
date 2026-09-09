@@ -115,7 +115,9 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       req.log.info({ chatId: body?.chatId, flowId: classificacao.flowId, viaIA: classificacao.viaIA }, "orquestrador: fluxo identificado");
       const resultado = await criarAtendimento(fluxo, classificacao.flowId, body?.chatId, body?.dadosConhecidos, req.log);
       if (resultado.statusCode !== 200) return reply.code(resultado.statusCode).send(resultado.corpo);
-      return reply.code(200).header("Location", resultado.location).send({ ...resultado.corpo, flowId: classificacao.flowId });
+      // resultado.corpo já vem com flowId (montarRespostaAtendimento manda
+      // sempre, ver rotas/atendimentos.ts) — não precisa injetar de novo.
+      return reply.code(200).header("Location", resultado.location).send(resultado.corpo);
     }
   );
 }
