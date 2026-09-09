@@ -5,6 +5,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 import fastifyBearerAuth from "@fastify/bearer-auth";
 import { registrarRotasAtendimento } from "./rotas/atendimentos.js";
 import { registrarRotaFluxos } from "./rotas/fluxos.js";
+import { registrarRotaOrquestrador } from "./rotas/orquestrador.js";
 import { logger } from "./shared/logger.js";
 
 // Monta o Fastify sem chamar listen() — assim os testes usam app.inject()
@@ -71,6 +72,7 @@ export async function montarApp() {
 
     registrarRotaFluxos(protegido);
     registrarRotasAtendimento(protegido);
+    registrarRotaOrquestrador(protegido);
   });
 
   return app;
