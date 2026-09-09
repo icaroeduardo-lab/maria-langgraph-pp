@@ -14,6 +14,12 @@ export interface DadosApenado {
   idPessoa?: number;
   nome?: string;
   situacao?: string;
+  // confirmados ao vivo 2026-09-09 — Verde já devolve os dois no /apenado,
+  // só não eram capturados (ver integracoes/verde.ts). Usados no payload de
+  // encaminhamento pro fluxo prisional (Origem do Processo, Tipo de preso,
+  // Regime, etc).
+  tipoPreso?: string;
+  regime?: string;
 }
 
 export interface MovimentoProcesso {
