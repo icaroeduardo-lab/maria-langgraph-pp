@@ -54,6 +54,8 @@ export const metadadosSchemaPessoaPresa = {
         idPessoa: { type: "number" },
         nome: { type: "string" },
         situacao: { type: "string" },
+        tipoPreso: { type: "string" },
+        regime: { type: "string" },
       },
     },
     motivoHandoff: { type: "string", enum: ["nome_nao_confirmado", "rg_nao_encontrado"] },

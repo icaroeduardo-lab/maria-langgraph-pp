@@ -69,4 +69,8 @@ test("fluxo completo: termina concluido, metadados com dadosApenado/parentesco p
   assert.equal(body.status, "concluido");
   assert.equal(body.metadados.parentesco, "amigo");
   assert.equal(body.metadados.dadosApenado.encontrado, true);
+  // confirmados ao vivo 2026-09-09 contra o Verde real — precisos pro
+  // payload de encaminhamento do fluxo prisional (Tipo de preso, Regime).
+  assert.equal(body.metadados.dadosApenado.tipoPreso, "CONDENADO (mock)");
+  assert.equal(body.metadados.dadosApenado.regime, "SEMIABERTO (mock)");
 });

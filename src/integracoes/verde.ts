@@ -24,6 +24,12 @@ interface ApenadoResponseVerde {
     nome?: string;
     situacao?: string;
     idPessoa?: number;
+    // confirmados ao vivo 2026-09-09 (curl direto no /apenado) — Verde já
+    // manda os dois, só não estavam sendo capturados. cpf e unidadePrisional
+    // também vêm na resposta real, mas nenhum fluxo precisa deles hoje —
+    // não capturados (YAGNI).
+    tipoPreso?: string;
+    regime?: string;
   };
 }
 
@@ -34,7 +40,15 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
     // retry sem depender do Verde real) — qualquer outro RG "acha" a pessoa
     // de teste.
     if (rg === "000000000") return { encontrado: false };
-    return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "ATIVO" };
+    return {
+      encontrado: true,
+      idSeap: 999999,
+      idPessoa: 999999,
+      nome: "Pessoa de Teste (mock)",
+      situacao: "ATIVO",
+      tipoPreso: "CONDENADO (mock)",
+      regime: "SEMIABERTO (mock)",
+    };
   }
   try {
     const res = await fetch(`${VERDE_API_URL}/apenado`, {
@@ -63,6 +77,8 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       idPessoa: corpo.dados.idPessoa,
       nome: corpo.dados.nome,
       situacao: corpo.dados.situacao,
+      tipoPreso: corpo.dados.tipoPreso,
+      regime: corpo.dados.regime,
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[verde] apenado: falha na chamada");
