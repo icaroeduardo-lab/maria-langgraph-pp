@@ -68,5 +68,12 @@ test("fluxo completo: termina concluido, metadados com dadosApenado/parentesco p
   assert.equal(res.statusCode, 200);
   assert.equal(body.status, "concluido");
   assert.equal(body.metadados.parentesco, "amigo");
-  assert.equal(body.metadados.dadosApenado.encontrado, true);
+  // dadosApenado/dadosProcesso em metadados são um RECORTE (decisão
+  // 2026-09-09) — só os campos que a outra API vai consumir, sem o
+  // `encontrado`/`movimentos`/etc que sobrava exposto sem necessidade (ver
+  // fluxos/pessoaPresa/api.ts::resumirDadosApenado/resumirDadosProcesso).
+  assert.equal(body.metadados.dadosApenado.idPessoa, 999999, "achou a pessoa (idPessoa presente é o sinal, não tem mais `encontrado`)");
+  assert.equal(body.metadados.dadosApenado.encontrado, undefined, "encontrado não deveria mais estar em metadados (só no state interno)");
+  assert.equal(body.metadados.dadosApenado.tipoPreso, "CONDENADO (mock)");
+  assert.equal(body.metadados.dadosApenado.regime, "SEMIABERTO (mock)");
 });

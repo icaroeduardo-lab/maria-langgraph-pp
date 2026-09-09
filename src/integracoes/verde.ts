@@ -1,4 +1,12 @@
-import type { DadosApenado, DadosPessoa, DadosProcesso, OrgaoAtendimento, OrgaosViolenciaDomestica } from "../shared/types.js";
+import type {
+  DadosApenado,
+  DadosPessoa,
+  DadosProcesso,
+  OrgaoAtendimento,
+  OrgaosViolenciaDomestica,
+  Plantao,
+  ResultadoEncaminhamento,
+} from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { contextoAtual } from "../shared/contexto.js";
 
@@ -16,6 +24,12 @@ interface ApenadoResponseVerde {
     nome?: string;
     situacao?: string;
     idPessoa?: number;
+    // confirmados ao vivo 2026-09-09 (curl direto no /apenado) — Verde já
+    // manda os dois, só não estavam sendo capturados. cpf e unidadePrisional
+    // também vêm na resposta real, mas nenhum fluxo precisa deles hoje —
+    // não capturados (YAGNI).
+    tipoPreso?: string;
+    regime?: string;
   };
 }
 
@@ -26,7 +40,15 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
     // retry sem depender do Verde real) — qualquer outro RG "acha" a pessoa
     // de teste.
     if (rg === "000000000") return { encontrado: false };
-    return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "ATIVO" };
+    return {
+      encontrado: true,
+      idSeap: 999999,
+      idPessoa: 999999,
+      nome: "Pessoa de Teste (mock)",
+      situacao: "ATIVO",
+      tipoPreso: "CONDENADO (mock)",
+      regime: "SEMIABERTO (mock)",
+    };
   }
   try {
     const res = await fetch(`${VERDE_API_URL}/apenado`, {
@@ -55,6 +77,8 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       idPessoa: corpo.dados.idPessoa,
       nome: corpo.dados.nome,
       situacao: corpo.dados.situacao,
+      tipoPreso: corpo.dados.tipoPreso,
+      regime: corpo.dados.regime,
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[verde] apenado: falha na chamada");
@@ -278,5 +302,172 @@ export async function consultarOrgaosViolenciaDomestica(indicacaoRO: boolean, id
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[verde] orgao-violencia-domestica: falha na chamada");
     return { encontrado: false, orgaos: [] };
+  }
+}
+
+interface PlantaoResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: Array<{ id?: number; tipo?: string }>;
+}
+
+// GET /integra/plantao/vigente — sem parâmetros. Lista vazia = fora de
+// horário de plantão (fluxo normal de órgão). Não vazia = usa
+// consultarOrgaosPlantaoViolenciaDomestica em vez da consulta normal — ver
+// fluxos/violenciaDomestica/graph.ts.
+export async function consultarPlantaoVigente(): Promise<Plantao[]> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // MOCK_PLANTAO_VIGENTE=true simula plantão ativo — sem isso o mock
+    // sempre devolve vazio (não dá pra simular via parâmetro, esse endpoint
+    // não recebe nenhum). Só lido em teste/dev, nunca com token real.
+    if (process.env.MOCK_PLANTAO_VIGENTE === "true") return [{ id: 1, tipo: "Violência Doméstica (mock)" }];
+    return [];
+  }
+  try {
+    const res = await fetch(`${VERDE_API_URL}/plantao/vigente`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      logger.warn({ ...contextoAtual(), status: res.status }, "[verde] plantao-vigente: HTTP não-ok");
+      return [];
+    }
+    const corpo = (await res.json()) as PlantaoResponseVerde;
+    return (corpo.dados ?? []).filter((p) => p.id !== undefined).map((p) => ({ id: p.id as number, tipo: p.tipo }));
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err }, "[verde] plantao-vigente: falha na chamada");
+    return [];
+  }
+}
+
+// GET /integra/orgao/plantao/violencia-domestica — mesmo formato de
+// resultado de consultarOrgaosViolenciaDomestica (reaproveitado pelo grafo
+// sem precisar saber qual dos dois foi chamado). idPlantao é repetível na
+// query string (?idPlantao=1&idPlantao=2).
+export async function consultarOrgaosPlantaoViolenciaDomestica(idPlantao: number[], idAssistido: number): Promise<OrgaosViolenciaDomestica> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    if (idAssistido === 0) {
+      return {
+        encontrado: false,
+        orgaos: [],
+        contactarCrc: true,
+        mensagemCrc: "Para dar continuidade ao seu atendimento, favor entrar em contato com a Central de Relacionamento com o Cidadão ligando 129",
+      };
+    }
+    return {
+      encontrado: true,
+      orgaos: [
+        {
+          id: 999,
+          nome: "Órgão de Plantão (mock)",
+          enderecos: [{ municipio: "Rio de Janeiro (mock)", idLocalAtendimento: 333 }],
+        },
+      ],
+    };
+  }
+  try {
+    const query = idPlantao.map((id) => `idPlantao=${id}`).join("&");
+    const res = await fetch(`${VERDE_API_URL}/orgao/plantao/violencia-domestica?${query}&idAssistido=${idAssistido}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      logger.warn({ ...contextoAtual(), status: res.status }, "[verde] orgao-plantao-violencia-domestica: HTTP não-ok");
+      return { encontrado: false, orgaos: [] };
+    }
+    const corpo = (await res.json()) as {
+      codigo?: string;
+      mensagem?: string;
+      dados?: NonNullable<OrgaoResponseVerde["dados"]>[number] | NonNullable<OrgaoResponseVerde["dados"]>;
+    };
+    if (corpo.codigo) {
+      // qualquer resposta com `codigo` aqui é erro/"não encontrado" (ex:
+      // REQUISICAO_INVALIDA visto ao vivo pra assistido sem endereço) — trata
+      // igual ao CONTACTAR_CRC do endpoint normal, mesma UX (handoff humano).
+      return { encontrado: false, orgaos: [], contactarCrc: true, mensagemCrc: corpo.mensagem };
+    }
+    // Doc do Swagger mostra `dados` como objeto único aqui (diferente do
+    // endpoint normal, que é array) — normaliza os dois formatos, não
+    // confiei 100% na doc depois do que já vimos divergir da realidade.
+    const bruto = (corpo as { dados?: unknown }).dados;
+    const lista = Array.isArray(bruto) ? bruto : bruto ? [bruto] : [];
+    const orgaos: OrgaoAtendimento[] = (lista as Array<{ id?: number; nome?: string; enderecos?: OrgaoAtendimento["enderecos"] }>).map((o) => ({
+      id: o.id ?? 0,
+      nome: o.nome ?? "",
+      enderecos: o.enderecos,
+    }));
+    return { encontrado: orgaos.length > 0, orgaos };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err }, "[verde] orgao-plantao-violencia-domestica: falha na chamada");
+    return { encontrado: false, orgaos: [] };
+  }
+}
+
+interface EncaminhamentoResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  id?: number;
+}
+
+export interface DadosEncaminhamento {
+  idPessoa: number;
+  idOrgao: number;
+  idLocalAtendimento?: number;
+  urgente: boolean;
+}
+
+// POST /integra/encaminhamento/encaminhar — executa o encaminhamento de
+// verdade (cria registro real no Verde). idAssunto NÃO é enviado — confirmado
+// com o time do Verde que não é necessário pro fluxo de violência doméstica
+// (2026-09-04). preferenciaAtendimento sempre "Remoto" (é chatbot).
+export async function criarEncaminhamentoViolenciaDomestica(dados: DadosEncaminhamento): Promise<ResultadoEncaminhamento> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // MOCK_ENCAMINHAMENTO_FALHA=true simula falha — só lido em teste/dev.
+    if (process.env.MOCK_ENCAMINHAMENTO_FALHA === "true") return { sucesso: false, erro: "falha simulada (mock)" };
+    return { sucesso: true, id: 999999 };
+  }
+  try {
+    const body = {
+      idPessoa: dados.idPessoa,
+      idOrgao: dados.idOrgao,
+      ...(dados.idLocalAtendimento !== undefined ? { idLocalAtendimento: dados.idLocalAtendimento } : {}),
+      urgencia: dados.urgente,
+      preferenciaAtendimento: "Remoto",
+      fluxoEncaminhamento: "VIOLENCIA_DOMESTICA",
+      ...(dados.urgente ? { motivoUrgencia: "Violência doméstica com Boletim de Ocorrência registrado" } : {}),
+    };
+    const res = await fetch(`${VERDE_API_URL}/encaminhamento/encaminhar`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const corpo = (await res.json().catch(() => ({}))) as EncaminhamentoResponseVerde;
+    if (!res.ok) {
+      logger.error({ ...contextoAtual(), status: res.status, corpo }, "[verde] encaminhamento: HTTP não-ok");
+      return { sucesso: false, erro: corpo.mensagem ?? `HTTP ${res.status}` };
+    }
+    return { sucesso: true, id: corpo.id };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err }, "[verde] encaminhamento: falha na chamada");
+    return { sucesso: false, erro: "falha na chamada ao Verde" };
   }
 }

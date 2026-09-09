@@ -1,4 +1,5 @@
 import type { GrafoAtendimento } from "../rotas/atendimentos.js";
+import { fluxosPlanejados, type FluxoPlanejado } from "./catalogo.js";
 import { grafo as grafoPessoaPresa } from "./pessoaPresa/graph.js";
 import {
   metadadosSchemaPessoaPresa,
@@ -16,6 +17,12 @@ import {
 
 export interface FluxoConfig {
   nome: string;
+  // usada por ia/classificarFluxo.ts pra escolher o fluxo certo a partir do
+  // relato livre (rotas/orquestrador.ts) — texto curto, em pt-BR, descrevendo
+  // pra quem/qual situação esse fluxo serve. Cada fluxo novo que for
+  // adicionado (ver comentário em ID_PESSOA_PRESA abaixo) só precisa
+  // preencher isso pra já entrar na classificação automática.
+  descricao: string;
   grafo: GrafoAtendimento;
   metadadosSchema: object;
   extrairMetadados: (values: Record<string, unknown>) => object;
@@ -33,6 +40,8 @@ export const ID_VIOLENCIA_DOMESTICA = "cabb2495-4e12-4f4a-9956-3d20649059bc";
 export const fluxosPorId: Record<string, FluxoConfig> = {
   [ID_PESSOA_PRESA]: {
     nome: "pessoa-presa",
+    descricao:
+      "Alguém (geralmente familiar) buscando informação ou encaminhamento sobre uma pessoa que está presa — situação prisional, processo, número do processo, dados do apenado no sistema penitenciário.",
     grafo: grafoPessoaPresa as unknown as GrafoAtendimento,
     metadadosSchema: metadadosSchemaPessoaPresa,
     extrairMetadados: extrairMetadadosPessoaPresa,
@@ -41,6 +50,8 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
   },
   [ID_VIOLENCIA_DOMESTICA]: {
     nome: "violencia-domestica",
+    descricao:
+      "Mulher vítima de violência doméstica buscando ajuda, proteção ou encaminhamento jurídico — relato de agressão física/psicológica, medo do agressor, com ou sem Boletim de Ocorrência já registrado.",
     grafo: grafoViolenciaDomestica as unknown as GrafoAtendimento,
     metadadosSchema: metadadosSchemaViolenciaDomestica,
     extrairMetadados: extrairMetadadosViolenciaDomestica,
@@ -51,4 +62,19 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
 
 export function buscarFluxo(fluxoId: string): FluxoConfig | undefined {
   return fluxosPorId[fluxoId];
+}
+
+// Catálogo COMPLETO pra classificação (ia/classificarFluxo.ts, via
+// rotas/orquestrador.ts) — implementados (fluxosPorId, com grafo de verdade)
+// + planejados (catalogo.ts, só descrição, sem código ainda). A IA pode
+// escolher um planejado; o orquestrador detecta que buscarFluxo() não acha
+// nada pra esse id e cai em handoff_humano, logando o id/nome pra medir
+// demanda de fluxo ainda não implementado.
+export function catalogoParaClassificacao(): Array<{ id: string; nome: string; descricao: string }> {
+  const implementados = Object.entries(fluxosPorId).map(([id, cfg]) => ({ id, nome: cfg.nome, descricao: cfg.descricao }));
+  return [...implementados, ...fluxosPlanejados];
+}
+
+export function buscarFluxoPlanejado(fluxoId: string): FluxoPlanejado | undefined {
+  return fluxosPlanejados.find((f) => f.id === fluxoId);
 }
