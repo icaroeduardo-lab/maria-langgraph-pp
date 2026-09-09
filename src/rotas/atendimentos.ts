@@ -15,16 +15,37 @@ interface Links {
   responder?: { href: string; method: "POST" };
 }
 
+// Dados cross-fluxo úteis fora do state específico de cada um — hoje só
+// `cpf` (decisão 2026-09-09): serve pra quem for chamar uma API do Verde
+// direto (fora do fluxo) sem precisar re-perguntar o CPF que a própria
+// conversa já coletou. Cresce conforme mais campos desse tipo aparecerem;
+// NÃO é o mesmo que `metadados` (que é o state completo, específico de
+// cada fluxo, com schema próprio em fluxos/*/api.ts).
+export interface DadosColetados {
+  cpf?: string;
+}
+
 export interface RespostaAtendimento {
   resposta: string;
   tipoResposta: string;
   opcoes?: string[];
   status: string;
-  metadados?: object;
+  // sempre presente — metadados é fluxo-específico (schema diferente por
+  // fluxo, ver fluxos/*/api.ts), sem isso não dá pra saber a qual fluxo ele
+  // pertence quando não se sabe de antemão (ex: veio do orquestrador).
+  flowId: string;
+  metadados: object;
+  dadosColetados: DadosColetados;
   _links: Links;
 }
 
-type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string };
+type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string; cpf?: string };
+
+function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
+  return {
+    ...(typeof values.cpf === "string" ? { cpf: values.cpf } : {}),
+  };
+}
 
 // Contrato mínimo que qualquer grafo compilado do LangGraph precisa cumprir
 // pra plugar nessas rotas — evita amarrar esse módulo aos generics internos
@@ -65,7 +86,11 @@ const linksSchema = {
   },
 } as const;
 
-const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
+// additionalProperties:true — o 409 de "atendimento já concluído" (ver
+// POST /atendimentos/respostas) enriquece o erro com resposta/status/
+// metadados/dadosColetados/flowId; sem isso o fast-json-stringify do
+// Fastify DESCARTA silenciosamente qualquer campo não declarado aqui.
+const erroSchema = { type: "object", properties: { erro: { type: "string" } }, additionalProperties: true } as const;
 
 // metadados varia por fluxo — QUAL grafo (portanto qual schema exato) só se
 // sabe em runtime, lendo flowId. Docs ficam genéricas aqui (não dá pra
@@ -78,10 +103,16 @@ const respostaAtendimentoSchema = {
     tipoResposta: { type: "string", enum: ["texto", "sim_nao", "opcoes"] },
     opcoes: { type: "array", items: { type: "string" } },
     status: { type: "string", enum: ["em_andamento", "concluido", "handoff_humano"] },
+    flowId: { type: "string", format: "uuid", description: "Fluxo a que esse atendimento pertence — identifica o schema de metadados" },
     metadados: {
       type: "object",
       additionalProperties: true,
-      description: "Shape depende do fluxo (flowId, ver GET /fluxos) — só presente quando status !== em_andamento",
+      description: "Shape depende do fluxo (flowId, ver GET /fluxos) — presente em toda resposta, reflete o state coletado até agora",
+    },
+    dadosColetados: {
+      type: "object",
+      properties: { cpf: { type: "string" } },
+      description: "Dados cross-fluxo já coletados (ex: CPF) — útil pra chamar Verde direto sem re-perguntar",
     },
     _links: linksSchema,
   },
@@ -100,16 +131,28 @@ const paramsComChatIdSchema = {
 // `interrupt`/`values`.
 function montarRespostaAtendimento(
   fluxo: FluxoConfig,
+  fluxoId: string,
   chatId: string,
   interrupt: InterruptValue | undefined,
   values: ValoresAtendimento
 ): RespostaAtendimento {
+  // metadados e dadosColetados vão em TODA resposta agora (decisão
+  // 2026-09-09) — antes só apareciam quando status !== em_andamento.
+  // fluxo.extrairMetadados já é seguro de chamar com state parcial (cada
+  // campo é opcional no schema de cada fluxo, ver fluxos/*/api.ts). flowId
+  // também sempre presente — sem ele não dá pra saber a qual fluxo o
+  // `metadados` pertence (schema difere por fluxo).
+  const metadados = fluxo.extrairMetadados(values);
+  const dadosColetados = montarDadosColetados(values);
   if (interrupt) {
     return {
       resposta: interrupt.pergunta,
       tipoResposta: interrupt.tipo,
       opcoes: interrupt.opcoes,
       status: "em_andamento",
+      flowId: fluxoId,
+      metadados,
+      dadosColetados,
       _links: montarLinks(chatId, "em_andamento"),
     };
   }
@@ -125,7 +168,9 @@ function montarRespostaAtendimento(
     resposta: mensagem,
     tipoResposta: "texto",
     status,
-    metadados: fluxo.extrairMetadados(values),
+    flowId: fluxoId,
+    metadados,
+    dadosColetados,
     _links: montarLinks(chatId, status),
   };
 }
@@ -187,7 +232,7 @@ export async function criarAtendimento(
     return {
       statusCode: 200,
       location: `/atendimentos/${chatId}`,
-      corpo: montarRespostaAtendimento(fluxo, chatId, interruptAnterior, valoresAnteriores),
+      corpo: montarRespostaAtendimento(fluxo, fluxoId, chatId, interruptAnterior, valoresAnteriores),
     };
   }
 
@@ -204,7 +249,7 @@ export async function criarAtendimento(
   return {
     statusCode: 200,
     location: `/atendimentos/${chatId}`,
-    corpo: montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento),
+    corpo: montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento),
   };
 }
 
@@ -302,7 +347,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const valores = (estado.values ?? {}) as ValoresAtendimento;
       const existe = !!interrupt || Object.keys(valores).length > 0;
       if (!existe) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      return montarRespostaAtendimento(fluxo, chatId, interrupt, valores);
+      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, valores);
     }
   );
 
@@ -349,7 +394,12 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const estadoAnterior = await fluxo.grafo.getState(config);
       const isResuming = (estadoAnterior.next?.length ?? 0) > 0;
       if (!isResuming) {
-        return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta" });
+        // Já concluiu — não avança nada, mas devolve os dados coletados
+        // igual a um GET, pra quem bateu nesse 409 não precisar de uma 2ª
+        // chamada só pra recuperar metadados/dadosColetados que já tinha.
+        const valoresFinais = (estadoAnterior.values ?? {}) as ValoresAtendimento;
+        const respostaFinal = montarRespostaAtendimento(fluxo, fluxoId, chatId, undefined, valoresFinais);
+        return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta", ...respostaFinal });
       }
       req.log.info({ fluxoId, chatId }, "resposta recebida");
 
@@ -370,7 +420,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
         req.log.info({ fluxoId, chatId, status }, "atendimento finalizado");
       }
-      return montarRespostaAtendimento(fluxo, chatId, interrupt, resultado as ValoresAtendimento);
+      return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }
   );
 }

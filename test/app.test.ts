@@ -114,6 +114,41 @@ test("POST /atendimentos → 200, Location aponta pro recurso criado, _links.res
   assert.equal(body._links.responder.method, "POST");
 });
 
+// metadados/dadosColetados presentes em TODA resposta, inclusive
+// em_andamento (decisão 2026-09-09) — antes só apareciam no fim do fluxo.
+test("POST /atendimentos → metadados e dadosColetados presentes mesmo em_andamento", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const res = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  const body = res.json();
+  assert.equal(body.status, "em_andamento");
+  assert.equal(typeof body.metadados, "object");
+  assert.equal(typeof body.dadosColetados, "object");
+  assert.equal(body.dadosColetados.cpf, undefined, "cpf ainda não foi coletado nesse ponto");
+});
+
+// flowId sempre presente na resposta (decisão 2026-09-09) — sem ele não dá
+// pra saber a qual fluxo o `metadados` pertence (schema difere por fluxo),
+// principalmente relevante pra quem chega via orquestrador sem saber de
+// antemão qual fluxo foi escolhido.
+test("flowId presente em toda resposta: criação, GET e respostas", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  const criado = await app.inject({ method: "POST", url: BASE, payload: { chatId, flowId: FLOW_ID }, headers: AUTH });
+  assert.equal(criado.json().flowId, FLOW_ID);
+
+  const get = await app.inject({ method: "GET", url: `${BASE}/${chatId}`, headers: AUTH });
+  assert.equal(get.json().flowId, FLOW_ID);
+
+  const resposta = await app.inject({
+    method: "POST",
+    url: `${BASE}/respostas`,
+    payload: { chatId, resposta: "false" },
+    headers: AUTH,
+  });
+  assert.equal(resposta.json().flowId, FLOW_ID);
+});
+
 // A tabela chatId→flowId (shared/atendimentosDb.ts) é o que existe pra
 // bloquear isso — sem ela, o mesmo chatId em 2 flowIds colidiria no mesmo
 // checkpoint do LangGraph (indexado só por thread_id).
@@ -222,4 +257,26 @@ test("POST /atendimentos/respostas em chatId já concluído → 409", async () =
   await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "false" }, headers: AUTH });
   const res = await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "qualquer coisa" }, headers: AUTH });
   assert.equal(res.statusCode, 409);
+});
+
+// Achado em uso real 2026-09-09: bater esse 409 não devia jogar fora o que
+// já tinha sido coletado — enriquece o erro com o mesmo corpo de um GET.
+test("POST /atendimentos/respostas em chatId já concluído → 409 enriquecido com metadados/dadosColetados/flowId", async () => {
+  const app = await montarApp();
+  const chatId = novoChatId();
+  await app.inject({
+    method: "POST",
+    url: BASE,
+    payload: { chatId, flowId: FLOW_ID, dadosConhecidos: { cpf: "11111111111" } },
+    headers: AUTH,
+  });
+  await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "false" }, headers: AUTH });
+  const res = await app.inject({ method: "POST", url: `${BASE}/respostas`, payload: { chatId, resposta: "qualquer coisa" }, headers: AUTH });
+  const body = res.json();
+  assert.equal(res.statusCode, 409);
+  assert.match(body.erro, /já foi concluído/);
+  assert.equal(body.flowId, FLOW_ID);
+  assert.equal(body.status, "handoff_humano");
+  assert.equal(body.dadosColetados.cpf, "11111111111", "não deveria perder o cpf já coletado só porque bateu 409");
+  assert.equal(typeof body.metadados, "object");
 });
