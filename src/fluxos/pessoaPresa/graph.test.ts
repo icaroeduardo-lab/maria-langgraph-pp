@@ -157,6 +157,30 @@ test("RG não encontrado 3x seguidas → esgota tentativas, vai direto pro atend
   assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano");
 });
 
+// Validação de formato do RG (issue #15) — rejeita ANTES de consultar o
+// Verde, sem gastar uma das 3 tentativas de "não encontrado" (essa é outra
+// contagem, tentativasRg, só incrementada dentro de consultarApenado).
+test("RG com letras é rejeitado, repergunta sem consultar o Verde nem contar tentativa", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  const r = await grafo.invoke(new Command({ resume: "abc123" }), config); // RG com letras
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /RG da pessoa presa|apenas números/, "deveria repetir a pergunta do RG, não seguir pro Verde");
+  assert.equal((r as { dadosApenado?: unknown }).dadosApenado, undefined, "não deveria ter chamado consultarApenado");
+  assert.equal((r as { tentativasRg?: number }).tentativasRg, undefined, "rejeição de formato não conta como tentativa de 'não encontrado'");
+});
+
+test("RG com letras, corrige na 2ª tentativa → segue pro Verde normalmente", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  await grafo.invoke(new Command({ resume: "abc123" }), config); // formato inválido
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // agora válido
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /Confirma que a pessoa presa é/, "RG válido deveria seguir o fluxo normalmente, achando a pessoa");
+});
+
 // Extração livre — campos pré-preenchidos no state inicial simulam "já veio
 // da extração" sem precisar chamar IA de verdade (isso é testado à parte,
 // em test-integracao/extrair.test.ts). O que importa aqui é o BYPASS: campo
@@ -199,6 +223,15 @@ test("extração livre: rg pré-preenchido que falha ainda entra no retry loop n
   const r = await grafo.invoke({ temProcesso: false, rg: "000000000" }, config); // RG sentinela "não encontrado"
   const p = pergunta(r);
   assert.match(p?.pergunta ?? "", /tentativa 1 de 3/, "deveria cair no retry normal, não travar por causa do bypass");
+});
+
+// Mesma ideia do teste acima, mas pra validação de FORMATO (issue #15): rg
+// pré-preenchido inválido não pode ser aceito só porque "veio da extração".
+test("extração livre: rg pré-preenchido com formato inválido também é rejeitado, não trava o bypass", async () => {
+  const config = novoConfig();
+  const r = await grafo.invoke({ temProcesso: false, rg: "amigo" }, config); // rg inválido "vindo da extração"
+  const p = pergunta(r);
+  assert.match(p?.pergunta ?? "", /RG da pessoa presa|apenas números/, "formato inválido deveria reperguntar, mesmo tendo vindo pré-preenchido");
 });
 
 test("extração livre ligada (EXTRACAO_LIVRE_IA=true) — grafo pausa na pergunta livre primeiro", async () => {

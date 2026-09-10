@@ -1,4 +1,5 @@
 import { interrupt, StateGraph, START, END } from "@langchain/langgraph";
+import { z } from "zod";
 import { type PessoaPresaStateType, PessoaPresaState } from "./state.js";
 import type { Pergunta } from "../../shared/types.js";
 import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "../../integracoes/verde.js";
@@ -146,6 +147,31 @@ function depoisDeTemProcesso(state: PessoaPresaStateType): "pedirNumeroProcesso"
   return state.temProcesso ? "pedirNumeroProcesso" : "pedirRg";
 }
 
+// Valida o FORMATO do RG antes de gastar uma chamada no Verde — só dígitos
+// (o mesmo texto da pergunta já pede "apenas os números"). Diferente do
+// retry de "RG não encontrado" (tentativasRg/perguntaTentarNovamente,
+// abaixo): aqui nunca chegou a consultar nada, é rejeição local.
+const RgSchema = z.string().trim().regex(/^\d+$/);
+
+function rgFormatoValido(rg: string): boolean {
+  return RgSchema.safeParse(rg).success;
+}
+
+function depoisDePedirRg(state: PessoaPresaStateType): "valido" | "invalido" {
+  return rgFormatoValido(state.rg ?? "") ? "valido" : "invalido";
+}
+
+// Limpa `rg` de volta pra undefined antes de perguntar de novo — sem isso,
+// rgVeioDaExtracao (acima) veria rg definido (o valor inválido) na tentativa
+// 0 e pularia a pergunta de novo, achando que "veio da extração".
+async function prepararPerguntaRgInvalido(): Promise<Partial<PessoaPresaStateType>> {
+  const preparado = await prepararPergunta(
+    "rgInvalido",
+    "O RG deve conter apenas números. Qual o RG da pessoa presa? Informe apenas os números."
+  );
+  return { ...preparado, rg: undefined };
+}
+
 async function consultarApenado(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const dados = await consultarApenadoPorRg(state.rg ?? "");
   return { dadosApenado: dados, tentativasRg: (state.tentativasRg ?? 0) + 1 };
@@ -240,6 +266,7 @@ const grafo = new StateGraph(PessoaPresaState)
   .addNode("consultarProcesso", consultarProcesso)
   .addNode("prepararPerguntaRg", prepararPerguntaRg)
   .addNode("pedirRg", pedirRg)
+  .addNode("prepararPerguntaRgInvalido", prepararPerguntaRgInvalido)
   .addNode("consultarApenado", consultarApenado)
   .addNode("prepararPerguntaTentarNovamente", prepararPerguntaTentarNovamente)
   .addNode("perguntaTentarNovamente", perguntaTentarNovamente)
@@ -267,7 +294,11 @@ const grafo = new StateGraph(PessoaPresaState)
   .addEdge("pedirNumeroProcesso", "consultarProcesso")
   .addEdge("consultarProcesso", "prepararPerguntaRg")
   .addEdge("prepararPerguntaRg", "pedirRg")
-  .addEdge("pedirRg", "consultarApenado")
+  .addConditionalEdges("pedirRg", depoisDePedirRg, {
+    valido: "consultarApenado",
+    invalido: "prepararPerguntaRgInvalido",
+  })
+  .addEdge("prepararPerguntaRgInvalido", "pedirRg")
   .addConditionalEdges("consultarApenado", depoisDeConsultarApenado, {
     pedirConfirmaNome: "prepararPerguntaConfirmaNome",
     perguntaTentarNovamente: "prepararPerguntaTentarNovamente",
