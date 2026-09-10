@@ -1,7 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { buscarFluxo, buscarFluxoPlanejado, catalogoParaClassificacao } from "../fluxos/index.js";
 import { classificarFluxo } from "../ia/classificarFluxo.js";
+import { buscarCandidatos } from "../shared/embeddingsFluxos.js";
 import { criarAtendimento } from "./atendimentos.js";
+
+// Quantos candidatos entram no prompt de classificação (ia/classificarFluxo.ts)
+// — com o catálogo de hoje (2 fluxos) nunca corta nada; existe pra quando o
+// catálogo crescer pra ~80 (ver issue #8). Número redondo, sem tuning fino
+// ainda — ajustar se a precisão da classificação incomodar em produção.
+const CANDIDATOS_MAXIMOS = 10;
 
 const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
 
@@ -90,7 +97,10 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       const mensagem = body?.mensagem;
       if (!mensagem) return reply.code(400).send({ erro: "mensagem obrigatória" });
 
-      const classificacao = await classificarFluxo(mensagem, catalogoParaClassificacao());
+      const catalogo = catalogoParaClassificacao();
+      const candidatos = await buscarCandidatos(mensagem, CANDIDATOS_MAXIMOS, catalogo);
+      req.log.info({ chatId: body?.chatId, totalCatalogo: catalogo.length, candidatos: candidatos.length }, "orquestrador: retrieval de candidatos");
+      const classificacao = await classificarFluxo(mensagem, candidatos);
 
       if (!classificacao.flowId) {
         req.log.info({ chatId: body?.chatId, viaIA: classificacao.viaIA }, "orquestrador: fluxo não identificado, handoff_humano direto");
