@@ -14,6 +14,8 @@ import {
   MENSAGEM_CONCLUIDO as MENSAGEM_CONCLUIDO_VD,
   MENSAGEM_HANDOFF as MENSAGEM_HANDOFF_VD,
 } from "./violenciaDomestica/api.js";
+import { grafo as grafoPadrao } from "./padrao/graph.js";
+import { metadadosSchemaPadrao, extrairMetadadosPadrao, MENSAGEM_CONCLUIDO as MENSAGEM_CONCLUIDO_PADRAO, MENSAGEM_HANDOFF as MENSAGEM_HANDOFF_PADRAO } from "./padrao/api.js";
 
 export interface FluxoConfig {
   nome: string;
@@ -70,8 +72,31 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
   },
 };
 
+// Grafo compartilhado por QUALQUER fluxo planejado (fluxosPlanejados) que
+// ainda não tem implementação própria — ver issue #21. 1 nó, conclui na
+// hora com mensagem fixa. Instância única (não 1 por categoria) — múltiplos
+// flowId diferentes apontam pra este MESMO FluxoConfig sem misturar estado
+// entre conversas (isolamento é por chatId/thread_id, ver padrao/graph.ts).
+const FLUXO_PADRAO: FluxoConfig = {
+  nome: "padrao-em-construcao",
+  descricao: "", // nunca entra em catalogoParaClassificacao — não é uma opção que a IA escolhe por si, só o fallback de um planejado já escolhido.
+  grafo: grafoPadrao as unknown as GrafoAtendimento,
+  metadadosSchema: metadadosSchemaPadrao,
+  extrairMetadados: extrairMetadadosPadrao,
+  mensagemConcluido: MENSAGEM_CONCLUIDO_PADRAO,
+  mensagemHandoff: MENSAGEM_HANDOFF_PADRAO,
+};
+
+// Resolve um flowId pro FluxoConfig que sabe rodar ele: implementado de
+// verdade (fluxosPorId) tem prioridade; se não achar mas o id existe em
+// fluxosPlanejados, cai no grafo padrão (issue #21) em vez de undefined.
+// undefined só deveria acontecer se catalogoParaClassificacao() (única fonte
+// dos ids que a IA classifica) ficar inconsistente com esses 2 catálogos.
 export function buscarFluxo(fluxoId: string): FluxoConfig | undefined {
-  return fluxosPorId[fluxoId];
+  const implementado = fluxosPorId[fluxoId];
+  if (implementado) return implementado;
+  const ehPlanejado = fluxosPlanejados.some((f) => f.id === fluxoId);
+  return ehPlanejado ? FLUXO_PADRAO : undefined;
 }
 
 // Catálogo COMPLETO pra classificação (ia/classificarFluxo.ts, via

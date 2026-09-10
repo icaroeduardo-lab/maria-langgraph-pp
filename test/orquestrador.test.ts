@@ -53,9 +53,11 @@ test("classificação não identifica nenhum fluxo → handoff_humano direto, se
 });
 
 // Mede demanda de fluxo ainda não codado (ver fluxos/catalogo.ts) — IA
-// "reconhece" pelo relato, mas não tem grafo pra rodar, cai em handoff com
-// motivo específico (diferente de "não identificado").
-test("classificação identifica fluxo PLANEJADO (sem código ainda) → handoff_humano, motivo fluxo_nao_implementado", async () => {
+// "reconhece" pelo relato, cai no grafo padrão compartilhado (issue #21),
+// conclui de verdade (não é mais handoff especial). flowId aparece na
+// resposta/log — é isso que dá a métrica de demanda, sem precisar de campo
+// especial.
+test("classificação identifica fluxo PLANEJADO (sem código ainda) → grafo padrão, concluido de verdade", async () => {
   const fluxoFalso = {
     id: "00000000-0000-0000-0000-000000000099",
     nome: "fluxo-teste-planejado",
@@ -75,11 +77,47 @@ test("classificação identifica fluxo PLANEJADO (sem código ainda) → handoff
     });
     const body = res.json();
     assert.equal(res.statusCode, 200);
-    assert.equal(body.status, "handoff_humano");
-    assert.equal(body.motivoHandoff, "fluxo_nao_implementado");
-    assert.equal(body.flowId, undefined, "não deveria expor flowId de um fluxo que não rodou de verdade");
+    assert.equal(body.status, "concluido");
+    assert.equal(body.flowId, fluxoFalso.id, "flowId do planejado deve aparecer — atendimento rodou de verdade (grafo padrão)");
+    assert.match(body.resposta, /sendo construíd/i);
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWID = original;
+    fluxosPlanejados.pop();
+  }
+});
+
+// Issue #21: várias categorias planejadas diferentes compartilham a MESMA
+// instância de grafo padrão (fluxos/index.ts::FLUXO_PADRAO) — isolamento de
+// conversa é por chatId/thread_id, não por qual flowId planejado apontou pra
+// cá. Esse teste garante que 2 flowId diferentes não misturam estado.
+test("2 categorias planejadas diferentes usam o mesmo grafo padrão sem misturar estado entre si", async () => {
+  const planejadoA = { id: "00000000-0000-0000-0000-0000000000a1", nome: "planejado-a", descricao: "a", idCategoriaAssuntoVerde: 88881 };
+  const planejadoB = { id: "00000000-0000-0000-0000-0000000000b2", nome: "planejado-b", descricao: "b", idCategoriaAssuntoVerde: 88882 };
+  fluxosPlanejados.push(planejadoA, planejadoB);
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  try {
+    const app = await montarApp();
+    const chatA = novoChatId();
+    const chatB = novoChatId();
+
+    process.env.MOCK_CLASSIFICACAO_FLOWID = planejadoA.id;
+    const resA = await app.inject({ method: "POST", url: BASE, payload: { chatId: chatA, mensagem: "relato A" }, headers: AUTH });
+
+    process.env.MOCK_CLASSIFICACAO_FLOWID = planejadoB.id;
+    const resB = await app.inject({ method: "POST", url: BASE, payload: { chatId: chatB, mensagem: "relato B" }, headers: AUTH });
+
+    assert.equal(resA.json().flowId, planejadoA.id);
+    assert.equal(resB.json().flowId, planejadoB.id);
+    assert.equal(resA.json().status, "concluido");
+    assert.equal(resB.json().status, "concluido");
+
+    const getA = await app.inject({ method: "GET", url: `/atendimentos/${chatA}`, headers: AUTH });
+    const getB = await app.inject({ method: "GET", url: `/atendimentos/${chatB}`, headers: AUTH });
+    assert.equal(getA.json().flowId, planejadoA.id, "GET do chatId A não deveria vazar o flowId de B");
+    assert.equal(getB.json().flowId, planejadoB.id, "GET do chatId B não deveria vazar o flowId de A");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWID = original;
+    fluxosPlanejados.pop();
     fluxosPlanejados.pop();
   }
 });

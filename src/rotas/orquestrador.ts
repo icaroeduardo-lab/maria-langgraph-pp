@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { buscarFluxo, buscarFluxoPlanejado, catalogoParaClassificacao } from "../fluxos/index.js";
+import { buscarFluxo, catalogoParaClassificacao } from "../fluxos/index.js";
 import { classificarFluxo } from "../ia/classificarFluxo.js";
 import { buscarCandidatos } from "../shared/embeddingsFluxos.js";
 import { criarAtendimento } from "./atendimentos.js";
@@ -21,8 +21,8 @@ const respostaOrquestradorSchema = {
     status: { type: "string", enum: ["em_andamento", "concluido", "handoff_humano"] },
     motivoHandoff: {
       type: "string",
-      enum: ["nao_identificado", "fluxo_nao_implementado"],
-      description: "Só presente quando status:handoff_humano SEM fluxo rodando (nenhum grafo chamado)",
+      enum: ["nao_identificado"],
+      description: "Só presente quando status:handoff_humano — relato não bateu com nenhum fluxo do catálogo (implementado ou planejado)",
     },
     metadados: { type: "object", additionalProperties: true },
     flowId: { type: "string", description: "Fluxo escolhido pela classificação — só presente quando um fluxo IMPLEMENTADO rodou de verdade" },
@@ -32,14 +32,10 @@ const respostaOrquestradorSchema = {
 
 const MENSAGEM_NAO_IDENTIFICADO =
   "Não consegui identificar como te ajudar a partir do que você escreveu. Vou encaminhar seu atendimento pra um atendente humano confirmar.";
-// Mesma mensagem pro usuário nos 2 casos de handoff sem fluxo — a diferença
-// (identificado mas sem código vs não identificado) importa pra NÓS
-// (telemetria de demanda, ver motivoHandoff/log), não pra experiência dele.
-const MENSAGEM_FLUXO_NAO_IMPLEMENTADO = MENSAGEM_NAO_IDENTIFICADO;
 
-function respostaHandoffSemFluxo(chatId: string | undefined, motivo: "nao_identificado" | "fluxo_nao_implementado") {
+function respostaHandoffSemFluxo(chatId: string | undefined, motivo: "nao_identificado") {
   return {
-    resposta: motivo === "fluxo_nao_implementado" ? MENSAGEM_FLUXO_NAO_IMPLEMENTADO : MENSAGEM_NAO_IDENTIFICADO,
+    resposta: MENSAGEM_NAO_IDENTIFICADO,
     tipoResposta: "texto",
     status: "handoff_humano",
     motivoHandoff: motivo,
@@ -109,19 +105,22 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
 
       const fluxo = buscarFluxo(classificacao.flowId);
       if (!fluxo) {
-        // IA identificou um fluxo PLANEJADO (fluxos/catalogo.ts) — reconhece
-        // a demanda, mas não tem grafo pra rodar ainda. Log estruturado
-        // (nível info — é esperado, não bug) serve pra medir qual fluxo
-        // priorizar implementar; buscarFluxoPlanejado só pra enriquecer o
-        // log com o nome, se achar.
-        const planejado = buscarFluxoPlanejado(classificacao.flowId);
-        req.log.info(
-          { chatId: body?.chatId, flowId: classificacao.flowId, nome: planejado?.nome, viaIA: classificacao.viaIA },
-          "orquestrador: fluxo identificado mas ainda não implementado"
+        // Não deveria acontecer — classificacao.flowId só vem de
+        // catalogoParaClassificacao() (fluxosPorId + fluxosPlanejados), e
+        // buscarFluxo() resolve os dois (implementado de verdade ou grafo
+        // padrão, ver issue #21). Cair aqui é inconsistência real entre os
+        // catálogos, não um caminho esperado — trata como não identificado
+        // em vez de quebrar o atendimento.
+        req.log.error(
+          { chatId: body?.chatId, flowId: classificacao.flowId },
+          "orquestrador: flowId classificado não existe em nenhum catálogo (inconsistência)"
         );
-        return reply.code(200).send(respostaHandoffSemFluxo(body?.chatId, "fluxo_nao_implementado"));
+        return reply.code(200).send(respostaHandoffSemFluxo(body?.chatId, "nao_identificado"));
       }
 
+      // fluxo pode ser um implementado de verdade OU o grafo padrão
+      // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
+      // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
       req.log.info({ chatId: body?.chatId, flowId: classificacao.flowId, viaIA: classificacao.viaIA }, "orquestrador: fluxo identificado");
       const resultado = await criarAtendimento(fluxo, classificacao.flowId, body?.chatId, body?.dadosConhecidos, req.log);
       if (resultado.statusCode !== 200) return reply.code(resultado.statusCode).send(resultado.corpo);
