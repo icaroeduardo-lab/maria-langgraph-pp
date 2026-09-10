@@ -28,6 +28,13 @@ export interface FluxoConfig {
   extrairMetadados: (values: Record<string, unknown>) => object;
   mensagemConcluido: string;
   mensagemHandoff: string;
+  // idCategoriaAssunto do Verde (GET /integra/assunto/categorias) que
+  // corresponde a este fluxo, quando existe um — ver issue #19. Ausente
+  // quando não há categoria do Verde equivalente (ex: pessoa presa não tem
+  // categoria própria no Verde). Usado só pra evitar duplicar esse fluxo em
+  // fluxosPlanejados (catalogo.ts) quando o catálogo do Verde for carregado
+  // — não afeta classificação nem é exposto pro usuário.
+  idCategoriaAssuntoVerde?: number;
 }
 
 // Id fixo por fluxo — hoje hardcoded aqui (sem banco ainda), mas já no
@@ -57,6 +64,9 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
     extrairMetadados: extrairMetadadosViolenciaDomestica,
     mensagemConcluido: MENSAGEM_CONCLUIDO_VD,
     mensagemHandoff: MENSAGEM_HANDOFF_VD,
+    // idCategoriaAssunto real do Verde (GET /assunto/categorias, confirmado
+    // ao vivo 2026-09-10) — ver issue #19.
+    idCategoriaAssuntoVerde: 10113,
   },
 };
 

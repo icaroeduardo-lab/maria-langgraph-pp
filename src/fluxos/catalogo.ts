@@ -16,9 +16,14 @@ export interface FluxoPlanejado {
   id: string;
   nome: string;
   descricao: string;
+  // idCategoriaAssunto do Verde (GET /integra/assunto/categorias) que essa
+  // entrada representa — ver issue #19. Guardado pra achar de volta na API
+  // do Verde depois, sem precisar re-consultar a lista inteira; não é usado
+  // pela classificação (ia/classificarFluxo.ts), só por nome/descricao.
+  idCategoriaAssuntoVerde: number;
 }
 
 export const fluxosPlanejados: FluxoPlanejado[] = [
   // exemplo (preencher conforme a lista real de fluxos chegar):
-  // { id: "<uuid-novo>", nome: "pensao-alimenticia", descricao: "..." },
+  // { id: "<uuid-novo>", nome: "pensao-alimenticia", descricao: "...", idCategoriaAssuntoVerde: 12345 },
 ];

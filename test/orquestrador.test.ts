@@ -56,7 +56,12 @@ test("classificação não identifica nenhum fluxo → handoff_humano direto, se
 // "reconhece" pelo relato, mas não tem grafo pra rodar, cai em handoff com
 // motivo específico (diferente de "não identificado").
 test("classificação identifica fluxo PLANEJADO (sem código ainda) → handoff_humano, motivo fluxo_nao_implementado", async () => {
-  const fluxoFalso = { id: "00000000-0000-0000-0000-000000000099", nome: "fluxo-teste-planejado", descricao: "só pra teste" };
+  const fluxoFalso = {
+    id: "00000000-0000-0000-0000-000000000099",
+    nome: "fluxo-teste-planejado",
+    descricao: "só pra teste",
+    idCategoriaAssuntoVerde: 99999,
+  };
   fluxosPlanejados.push(fluxoFalso);
   const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
   process.env.MOCK_CLASSIFICACAO_FLOWID = fluxoFalso.id;
