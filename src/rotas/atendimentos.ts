@@ -71,7 +71,9 @@ function montarLinks(chatId: string, status: string): Links {
   return links;
 }
 
-function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
+// Exportado — orquestrador (src/orquestrador/graph.ts) também precisa
+// extrair o __interrupt__ do invoke(), mesmo mecanismo do LangGraph.
+export function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
   return (resultado as { __interrupt__?: Array<{ value: InterruptValue }> }).__interrupt__?.[0]?.value;
 }
 

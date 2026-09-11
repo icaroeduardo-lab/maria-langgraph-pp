@@ -45,3 +45,37 @@ export async function classificarEntreOpcoes(mensagem: string, sistema: string, 
     return { escolhaId: undefined, viaIA: false };
   }
 }
+
+export interface ResultadoClassificacaoMultipla {
+  // TODOS os candidatos plausíveis — 0 (nenhum bate), 1 (claro) ou vários
+  // (ambíguo, chamador decide o que fazer, ex: orquestrador/graph.ts pede
+  // desambiguação). Diferente de classificarEntreOpcoes, que força 1 só.
+  ids: string[];
+  viaIA: boolean;
+}
+
+// Mesma ideia de classificarEntreOpcoes, mas devolve TODOS os candidatos
+// plausíveis em vez de forçar uma escolha única — usado quando o chamador
+// precisa saber se o relato é ambíguo entre vários candidatos (issue #28),
+// não só "qual é o melhor".
+export async function classificarMultiploEntreOpcoes(mensagem: string, sistema: string, ids: string[]): Promise<ResultadoClassificacaoMultipla> {
+  try {
+    if (ids.length === 0) return { ids: [], viaIA: false };
+    const Schema = z.object({
+      idsPlausiveis: z
+        .array(z.enum(ids as [string, ...string[]]))
+        .describe(
+          "ids de TODOS os candidatos que plausivelmente atendem ao relato — lista vazia se nenhum bater com confiança, 1 item se for claro, vários se o relato for genuinamente ambíguo entre mais de um. Nunca inventa id fora da lista."
+        ),
+    });
+    const comSaidaEstruturada = modelo.withStructuredOutput(Schema);
+    const resultado = await comSaidaEstruturada.invoke([
+      { role: "system", content: sistema },
+      { role: "user", content: mensagem },
+    ]);
+    return { ids: resultado.idsPlausiveis, viaIA: true };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err }, "[classificar] falha ao classificar (múltiplo), tratando como não identificado");
+    return { ids: [], viaIA: false };
+  }
+}
