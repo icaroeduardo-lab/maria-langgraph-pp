@@ -20,6 +20,18 @@ const respostaOrquestradorSchema = {
       description: "Só presente quando status:handoff_humano — relato não bateu com nenhum fluxo do catálogo (implementado ou planejado)",
     },
     metadados: { type: "object", additionalProperties: true },
+    // dadosColetados e tokensGastosTotal também vêm no corpo (mesmo
+    // montarRespostaAtendimento de rotas/atendimentos.ts) quando o
+    // orquestrador entrega pra criarAtendimento — sem declarar aqui, o
+    // fast-json-stringify do Fastify DESCARTA silenciosamente os campos
+    // (achado ao vivo 2026-09-11, testando a issue #35: tokensGastosTotal
+    // sumia da resposta só nesta rota, dadosColetados já sumia antes disso
+    // também, bug pré-existente na mesma causa).
+    dadosColetados: { type: "object", additionalProperties: true },
+    tokensGastosTotal: {
+      type: "number",
+      description: "Soma de todos os tokens de IA gastos nesta conversa (classificação + desambiguação + fluxo final) — só presente quando status:concluido/handoff_humano",
+    },
     flowId: {
       type: "string",
       description:
