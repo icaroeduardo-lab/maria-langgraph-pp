@@ -36,10 +36,20 @@ export interface RespostaAtendimento {
   flowId: string;
   metadados: object;
   dadosColetados: DadosColetados;
+  // Só presente quando status:concluido/handoff_humano (issue #35) — soma
+  // de TODOS os tokens de IA gastos nesta conversa (fluxos/*/state.ts,
+  // campo tokensGastosTotal com reducer de soma). 0 quando nenhuma chamada
+  // de IA rodou de verdade, nunca ausente/undefined nesse caso.
+  tokensGastosTotal?: number;
   _links: Links;
 }
 
-type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string; cpf?: string };
+type ValoresAtendimento = Record<string, unknown> & {
+  statusFinal?: string;
+  mensagemFinal?: string;
+  cpf?: string;
+  tokensGastosTotal?: number;
+};
 
 function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
   return {
@@ -116,6 +126,10 @@ const respostaAtendimentoSchema = {
       properties: { cpf: { type: "string" } },
       description: "Dados cross-fluxo já coletados (ex: CPF) — útil pra chamar Verde direto sem re-perguntar",
     },
+    tokensGastosTotal: {
+      type: "number",
+      description: "Soma de todos os tokens de IA gastos nesta conversa — só presente quando status:concluido/handoff_humano",
+    },
     _links: linksSchema,
   },
 } as const;
@@ -173,6 +187,9 @@ function montarRespostaAtendimento(
     flowId: fluxoId,
     metadados,
     dadosColetados,
+    // 0 (não undefined) quando nenhuma chamada de IA rodou de verdade
+    // nesta conversa — issue #35.
+    tokensGastosTotal: values.tokensGastosTotal ?? 0,
     _links: montarLinks(chatId, status),
   };
 }

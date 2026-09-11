@@ -65,6 +65,9 @@ async function pedirLivre(state: PessoaPresaStateType): Promise<Partial<PessoaPr
     ...(extraido.numeroProcesso !== undefined ? { numeroProcesso: extraido.numeroProcesso } : {}),
     ...(extraido.rg !== undefined ? { rg: extraido.rg } : {}),
     ...(extraido.parentesco !== undefined ? { parentesco: extraido.parentesco } : {}),
+    // único nó deste fluxo que chama IA fora de prepararPergunta() — soma o
+    // delta manualmente (issue #35).
+    tokensGastosTotal: extraido.tokensTotal ?? 0,
   };
 }
 

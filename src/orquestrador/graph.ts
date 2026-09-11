@@ -37,8 +37,9 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));
   const plausiveis = ids.map((id) => porId.get(id)).filter((c): c is CandidatoOrquestrador => c !== undefined);
   // Sempre 1º nó da rodada — sobrescreve (não soma) de propósito, é o
-  // início da contagem desta rodada (issue #34).
-  return { candidatosRestantes: plausiveis, tokensGastosRodada: tokensTotal };
+  // início da contagem desta rodada (issue #34). tokensGastosTotalConversa
+  // tem reducer de soma (issue #35) — aqui é só o DELTA desta chamada.
+  return { candidatosRestantes: plausiveis, tokensGastosRodada: tokensTotal, tokensGastosTotalConversa: tokensTotal ?? 0 };
 }
 
 // Esgotar o limite de rodadas com >1 candidato ainda ambíguo vira "nenhum"
@@ -104,7 +105,11 @@ async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Prom
   // não entra no retorno, mantém o que "classificar" já escreveu.
   if (perguntaDoBanco) return { perguntaAtualTexto: perguntaDoBanco };
   const { pergunta, tokensTotal } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
-  return { perguntaAtualTexto: pergunta, tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal) };
+  return {
+    perguntaAtualTexto: pergunta,
+    tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
+    tokensGastosTotalConversa: tokensTotal ?? 0,
+  };
 }
 
 // tipo "texto" (não "opcoes") de propósito — decisão 2026-09-11: mostrar os
