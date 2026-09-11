@@ -66,6 +66,10 @@ export interface PerguntasStore {
   inserirAssunto(a: AssuntoVerde): Promise<void>;
   inserirFlowAssunto(fa: FlowAssunto): Promise<void>;
   listarPerguntasPorFlow(flowId: string): Promise<PerguntaArvore[]>;
+  // Pergunta raiz da árvore (ordem 0) — usada pelo orquestrador (issue #32)
+  // pra achar pergunta real compartilhada entre candidatos ambíguos, sem
+  // precisar buscar a árvore inteira.
+  buscarPerguntaRaiz(flowId: string): Promise<PerguntaArvore | undefined>;
   listarAssuntosPorFlow(flowId: string): Promise<AssuntoDoFlow[]>;
   // Remove perguntas e ligações flow→assunto de um flowId antes de
   // recrawlear — o crawl não é incremental (a árvore pode mudar de forma
@@ -91,6 +95,9 @@ function criarStoreEmMemoria(): PerguntasStore {
     },
     async listarPerguntasPorFlow(flowId) {
       return perguntas.filter((p) => p.flowId === flowId);
+    },
+    async buscarPerguntaRaiz(flowId) {
+      return perguntas.find((p) => p.flowId === flowId && p.ordem === 0);
     },
     async listarAssuntosPorFlow(flowId) {
       return flowAssuntos
@@ -199,6 +206,22 @@ function criarStorePostgres(url: string): PerguntasStore {
         opcoes: r.opcoes,
         ordem: r.ordem,
       }));
+    },
+    async buscarPerguntaRaiz(flowId) {
+      await prontoPromise;
+      const res = await pool.query(`SELECT * FROM perguntas WHERE flow_id = $1 AND ordem = 0 LIMIT 1`, [flowId]);
+      const r = res.rows[0];
+      if (!r) return undefined;
+      return {
+        id: r.id,
+        flowId: r.flow_id,
+        idItemCategoria: r.id_item_categoria,
+        veioDaRespostaId: r.veio_da_resposta_id,
+        textoPergunta: r.texto_pergunta,
+        tipo: r.tipo,
+        opcoes: r.opcoes,
+        ordem: r.ordem,
+      };
     },
     async listarAssuntosPorFlow(flowId) {
       await prontoPromise;

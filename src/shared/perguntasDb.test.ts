@@ -49,6 +49,22 @@ test("inserirPergunta + listarPerguntasPorFlow — devolve só as do flowId pedi
   assert.ok(lista.every((p) => p.flowId === flowId));
 });
 
+test("buscarPerguntaRaiz — devolve só a linha de ordem 0 do flowId pedido", async () => {
+  const store = await obterPerguntasStore();
+  const flowId = "flow-teste-raiz";
+  await store.inserirPergunta(pergunta(flowId, { ordem: 0, id: "raiz", textoPergunta: "pergunta raiz" }));
+  await store.inserirPergunta(pergunta(flowId, { ordem: 1, id: "filha", textoPergunta: "pergunta filha" }));
+
+  const raiz = await store.buscarPerguntaRaiz(flowId);
+  assert.equal(raiz?.textoPergunta, "pergunta raiz");
+});
+
+test("buscarPerguntaRaiz — undefined quando o flowId não tem nenhuma pergunta", async () => {
+  const store = await obterPerguntasStore();
+  const raiz = await store.buscarPerguntaRaiz("flow-sem-pergunta-nenhuma");
+  assert.equal(raiz, undefined);
+});
+
 test("inserirAssunto + inserirFlowAssunto + listarAssuntosPorFlow — devolve só os do flowId pedido", async () => {
   const store = await obterPerguntasStore();
   const flowId = "flow-teste-2";
