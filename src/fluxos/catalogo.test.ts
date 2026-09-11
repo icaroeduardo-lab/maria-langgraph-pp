@@ -35,6 +35,12 @@ test("ids (uuid) de fluxosPlanejados são únicos e não colidem com fluxosPorId
   }
 });
 
-test("volume carregado bate com a lista real confirmada em 2026-09-10 (73 categorias − lixo − violência doméstica já implementada)", () => {
-  assert.equal(fluxosPlanejados.length, 71);
+test("volume carregado bate com a lista real confirmada (73 categorias − lixo − violência doméstica já implementada + 3 categorias novas achadas na planilha de palavras-chave em 2026-09-11)", () => {
+  assert.equal(fluxosPlanejados.length, 74);
+});
+
+test("toda entrada tem palavrasChave (array, mesmo que vazio)", () => {
+  for (const f of fluxosPlanejados) {
+    assert.ok(Array.isArray(f.palavrasChave), `${f.nome} deveria ter palavrasChave como array`);
+  }
 });

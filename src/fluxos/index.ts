@@ -1,5 +1,5 @@
 import type { GrafoAtendimento } from "../rotas/atendimentos.js";
-import { fluxosPlanejados, type FluxoPlanejado } from "./catalogo.js";
+import { fluxosPlanejados, textoParaClassificacao, type FluxoPlanejado } from "./catalogo.js";
 import { grafo as grafoPessoaPresa } from "./pessoaPresa/graph.js";
 import {
   metadadosSchemaPessoaPresa,
@@ -101,13 +101,14 @@ export function buscarFluxo(fluxoId: string): FluxoConfig | undefined {
 
 // Catálogo COMPLETO pra classificação (ia/classificarFluxo.ts, via
 // rotas/orquestrador.ts) — implementados (fluxosPorId, com grafo de verdade)
-// + planejados (catalogo.ts, só descrição, sem código ainda). A IA pode
-// escolher um planejado; o orquestrador detecta que buscarFluxo() não acha
-// nada pra esse id e cai em handoff_humano, logando o id/nome pra medir
-// demanda de fluxo ainda não implementado.
+// + planejados (catalogo.ts). A IA pode escolher um planejado; buscarFluxo()
+// resolve pro grafo padrão nesse caso (issue #21), não mais handoff especial.
+// Planejados usam textoParaClassificacao() — combina descricao + palavrasChave
+// (issue #19, atualizado 2026-09-11) no texto que a IA/embedding realmente lê.
 export function catalogoParaClassificacao(): Array<{ id: string; nome: string; descricao: string }> {
   const implementados = Object.entries(fluxosPorId).map(([id, cfg]) => ({ id, nome: cfg.nome, descricao: cfg.descricao }));
-  return [...implementados, ...fluxosPlanejados];
+  const planejados = fluxosPlanejados.map((f) => ({ id: f.id, nome: f.nome, descricao: textoParaClassificacao(f) }));
+  return [...implementados, ...planejados];
 }
 
 export function buscarFluxoPlanejado(fluxoId: string): FluxoPlanejado | undefined {
