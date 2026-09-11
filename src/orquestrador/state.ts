@@ -20,5 +20,4 @@ export const OrquestradorState = Annotation.Root({
   flowIdEscolhido: Annotation<string | undefined>,
   statusFinal: Annotation<"identificado" | "nao_identificado" | undefined>,
   perguntaAtualTexto: Annotation<string | undefined>,
-  perguntaAtualOpcoes: Annotation<string[] | undefined>,
 });

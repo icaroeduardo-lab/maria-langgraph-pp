@@ -212,8 +212,7 @@ test("relato ambíguo entre 2 fluxos → pergunta de desambiguação → respost
     assert.equal(r1.statusCode, 200);
     assert.equal(body1.status, "em_andamento");
     assert.equal(body1.flowId, undefined, "não deveria ter flowId enquanto ainda está desambiguando");
-    assert.equal(body1.tipoResposta, "opcoes");
-    assert.deepEqual(new Set(body1.opcoes), new Set(["pessoa-presa", "violencia-domestica"]));
+    assert.equal(body1.tipoResposta, "texto", "pergunta de desambiguação é texto livre, não menu de opções (decisão 2026-09-11)");
 
     // resposta de desambiguação escolhe/reduz pra 1 candidato só
     process.env.MOCK_CLASSIFICACAO_FLOWIDS = ID_PESSOA_PRESA;

@@ -59,14 +59,18 @@ async function naoIdentificado(): Promise<Partial<OrquestradorStateType>> {
 async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Promise<Partial<OrquestradorStateType>> {
   const candidatos = state.candidatosRestantes ?? [];
   const { pergunta } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
-  return { perguntaAtualTexto: pergunta, perguntaAtualOpcoes: candidatos.map((c) => c.nome) };
+  return { perguntaAtualTexto: pergunta };
 }
 
+// tipo "texto" (não "opcoes") de propósito — decisão 2026-09-11: mostrar os
+// nomes internos dos candidatos como menu de opção soava técnico/estranho
+// pro usuário real (ver relato ao vivo). Deixa a pessoa responder com as
+// próprias palavras — igual já funciona bem no resto do sistema (retrieval +
+// keywords) — em vez de tentar advinhar rótulos naturais pra cada candidato.
 async function pedirDesambiguacao(state: OrquestradorStateType): Promise<Partial<OrquestradorStateType>> {
   const resposta = interrupt<Pergunta, string>({
-    pergunta: state.perguntaAtualTexto ?? "Pra te ajudar melhor, qual dessas opções descreve o que você precisa?",
-    tipo: "opcoes",
-    opcoes: state.perguntaAtualOpcoes,
+    pergunta: state.perguntaAtualTexto ?? "Pra te ajudar melhor, pode contar com mais detalhes o que você precisa?",
+    tipo: "texto",
   });
   // candidatosRestantes NÃO é tocado aqui de propósito — próxima rodada de
   // "classificar" reaproveita o mesmo subconjunto, só com a mensagem maior.
