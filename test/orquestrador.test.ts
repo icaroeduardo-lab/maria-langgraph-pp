@@ -63,6 +63,7 @@ test("classificação identifica fluxo PLANEJADO (sem código ainda) → grafo p
     nome: "fluxo-teste-planejado",
     descricao: "só pra teste",
     idCategoriaAssuntoVerde: 99999,
+    palavrasChave: [],
   };
   fluxosPlanejados.push(fluxoFalso);
   const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
@@ -91,8 +92,20 @@ test("classificação identifica fluxo PLANEJADO (sem código ainda) → grafo p
 // conversa é por chatId/thread_id, não por qual flowId planejado apontou pra
 // cá. Esse teste garante que 2 flowId diferentes não misturam estado.
 test("2 categorias planejadas diferentes usam o mesmo grafo padrão sem misturar estado entre si", async () => {
-  const planejadoA = { id: "00000000-0000-0000-0000-0000000000a1", nome: "planejado-a", descricao: "a", idCategoriaAssuntoVerde: 88881 };
-  const planejadoB = { id: "00000000-0000-0000-0000-0000000000b2", nome: "planejado-b", descricao: "b", idCategoriaAssuntoVerde: 88882 };
+  const planejadoA = {
+    id: "00000000-0000-0000-0000-0000000000a1",
+    nome: "planejado-a",
+    descricao: "a",
+    idCategoriaAssuntoVerde: 88881,
+    palavrasChave: [],
+  };
+  const planejadoB = {
+    id: "00000000-0000-0000-0000-0000000000b2",
+    nome: "planejado-b",
+    descricao: "b",
+    idCategoriaAssuntoVerde: 88882,
+    palavrasChave: [],
+  };
   fluxosPlanejados.push(planejadoA, planejadoB);
   const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
   try {
