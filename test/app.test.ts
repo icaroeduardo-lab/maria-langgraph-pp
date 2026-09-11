@@ -248,6 +248,9 @@ test("fluxo terminado: sem opcoes, sem _links.responder", async () => {
   assert.equal(body.opcoes, undefined);
   assert.equal(body._links.responder, undefined, "atendimento terminado não deve oferecer link pra responder de novo");
   assert.equal(body._links.self.href, `${BASE}/${chatId}`);
+  // issue #35 — 0 (não undefined/ausente), NODE_ENV=test nunca chama IA de
+  // verdade, então nenhum token real é gasto nesta conversa.
+  assert.equal(body.tokensGastosTotal, 0);
 });
 
 test("POST /atendimentos/respostas em chatId já concluído → 409", async () => {

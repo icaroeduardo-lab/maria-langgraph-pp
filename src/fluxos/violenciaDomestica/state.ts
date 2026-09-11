@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import type { DadosPessoa, DadosProcesso, OrgaosViolenciaDomestica } from "../../shared/types.js";
+import { AnnotationTokensAcumulados } from "../../shared/tokensAcumulados.js";
 
 export type ViolenciaDomesticaStateType = typeof ViolenciaDomesticaState.State;
 
@@ -46,4 +47,7 @@ export const ViolenciaDomesticaState = Annotation.Root({
   perguntaAtualTexto: Annotation<string | undefined>,
   perguntaAtualViaIA: Annotation<boolean | undefined>,
   perguntaAtualTokensTotal: Annotation<number | undefined>,
+  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35) — ver
+  // shared/tokensAcumulados.ts.
+  tokensGastosTotal: AnnotationTokensAcumulados(),
 });

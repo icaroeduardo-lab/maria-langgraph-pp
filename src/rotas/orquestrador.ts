@@ -107,7 +107,10 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
           ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
           : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
 
-      const { tokensGastosRodada } = resultado as { tokensGastosRodada?: number };
+      const { tokensGastosRodada, tokensGastosTotalConversa } = resultado as {
+        tokensGastosRodada?: number;
+        tokensGastosTotalConversa?: number;
+      };
 
       const interrupt = extrairInterruptDoInvoke(resultado);
       if (interrupt) {
@@ -143,7 +146,14 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
       // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
       req.log.info({ chatId, flowId: flowIdEscolhido, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo identificado");
-      const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, body?.dadosConhecidos, req.log);
+      // Repassa o total gasto ANTES de identificar o fluxo (classificação +
+      // desambiguação) como ponto de partida do acumulador do fluxo
+      // escolhido — sem isso o total final do chat perdia o custo da
+      // triagem (issue #35). Mesmo mecanismo de dadosConhecidos já usado
+      // pra pré-preencher campo respondido (criarAtendimento passa direto
+      // pro state inicial do grafo).
+      const dadosConhecidosComTokens = { ...(body?.dadosConhecidos ?? {}), tokensGastosTotal: tokensGastosTotalConversa ?? 0 };
+      const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, dadosConhecidosComTokens, req.log);
       if (resultadoAtendimento.statusCode !== 200) return reply.code(resultadoAtendimento.statusCode).send(resultadoAtendimento.corpo);
       return reply.code(200).header("Location", resultadoAtendimento.location).send(resultadoAtendimento.corpo);
     }

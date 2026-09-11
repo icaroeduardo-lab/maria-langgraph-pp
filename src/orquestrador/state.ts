@@ -1,4 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
+import { AnnotationTokensAcumulados } from "../shared/tokensAcumulados.js";
 
 export type OrquestradorStateType = typeof OrquestradorState.State;
 
@@ -26,4 +27,11 @@ export const OrquestradorState = Annotation.Root({
   // `prepararPerguntaDesambiguacao`, quando roda na mesma rodada, SOMA em
   // cima em vez de sobrescrever (issue #34).
   tokensGastosRodada: Annotation<number | undefined>,
+  // Soma de TODOS os tokens gastos com IA NESTA CONVERSA do orquestrador
+  // (todas as rodadas de classificação/desambiguação, não só a última) —
+  // ver shared/tokensAcumulados.ts. Repassado como
+  // dadosConhecidos.tokensGastosTotal quando a desambiguação resolve pra 1
+  // fluxo (rotas/orquestrador.ts) — vira o PONTO DE PARTIDA do acumulador
+  // do fluxo escolhido, não perde o gasto de antes de identificar (issue #35).
+  tokensGastosTotalConversa: AnnotationTokensAcumulados(),
 });
