@@ -1,5 +1,5 @@
 import type { GrafoAtendimento } from "../rotas/atendimentos.js";
-import { fluxosPlanejados, textoParaClassificacao } from "./catalogo.js";
+import { listarFluxosPlanejados, buscarFluxoPlanejadoPorId, textoParaClassificacao } from "../shared/fluxosPlanejadosDb.js";
 import { grafo as grafoPessoaPresa } from "./pessoaPresa/graph.js";
 import {
   metadadosSchemaPessoaPresa,
@@ -34,8 +34,8 @@ export interface FluxoConfig {
   // corresponde a este fluxo, quando existe um — ver issue #19. Ausente
   // quando não há categoria do Verde equivalente (ex: pessoa presa não tem
   // categoria própria no Verde). Usado só pra evitar duplicar esse fluxo em
-  // fluxosPlanejados (catalogo.ts) quando o catálogo do Verde for carregado
-  // — não afeta classificação nem é exposto pro usuário.
+  // tabela fluxos_planejados (issue #26) quando o catálogo do Verde for
+  // carregado — não afeta classificação nem é exposto pro usuário.
   idCategoriaAssuntoVerde?: number;
 }
 
@@ -72,7 +72,7 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
   },
 };
 
-// Grafo compartilhado por QUALQUER fluxo planejado (fluxosPlanejados) que
+// Grafo compartilhado por QUALQUER fluxo planejado (tabela fluxos_planejados) que
 // ainda não tem implementação própria — ver issue #21. 1 nó, conclui na
 // hora com mensagem fixa. Instância única (não 1 por categoria) — múltiplos
 // flowId diferentes apontam pra este MESMO FluxoConfig sem misturar estado
@@ -88,25 +88,27 @@ const FLUXO_PADRAO: FluxoConfig = {
 };
 
 // Resolve um flowId pro FluxoConfig que sabe rodar ele: implementado de
-// verdade (fluxosPorId) tem prioridade; se não achar mas o id existe em
-// fluxosPlanejados, cai no grafo padrão (issue #21) em vez de undefined.
-// undefined só deveria acontecer se catalogoParaClassificacao() (única fonte
-// dos ids que a IA classifica) ficar inconsistente com esses 2 catálogos.
-export function buscarFluxo(fluxoId: string): FluxoConfig | undefined {
+// verdade (fluxosPorId) tem prioridade; se não achar mas o id existe na
+// tabela fluxos_planejados (issue #26), cai no grafo padrão (issue #21) em
+// vez de undefined. undefined só deveria acontecer se
+// catalogoParaClassificacao() (única fonte dos ids que a IA classifica)
+// ficar inconsistente com esses 2 catálogos.
+export async function buscarFluxo(fluxoId: string): Promise<FluxoConfig | undefined> {
   const implementado = fluxosPorId[fluxoId];
   if (implementado) return implementado;
-  const ehPlanejado = fluxosPlanejados.some((f) => f.id === fluxoId);
-  return ehPlanejado ? FLUXO_PADRAO : undefined;
+  const planejado = await buscarFluxoPlanejadoPorId(fluxoId);
+  return planejado ? FLUXO_PADRAO : undefined;
 }
 
-// Catálogo COMPLETO pra classificação (ia/classificarFluxo.ts, via
+// Catálogo COMPLETO pra classificação (ia/classificarFluxos.ts, via
 // rotas/orquestrador.ts) — implementados (fluxosPorId, com grafo de verdade)
-// + planejados (catalogo.ts). A IA pode escolher um planejado; buscarFluxo()
-// resolve pro grafo padrão nesse caso (issue #21), não mais handoff especial.
-// Planejados usam textoParaClassificacao() — combina descricao + palavrasChave
-// (issue #19, atualizado 2026-09-11) no texto que a IA/embedding realmente lê.
-export function catalogoParaClassificacao(): Array<{ id: string; nome: string; descricao: string }> {
+// + planejados (tabela fluxos_planejados, issue #26). A IA pode escolher um
+// planejado; buscarFluxo() resolve pro grafo padrão nesse caso (issue #21),
+// não mais handoff especial. Planejados usam textoParaClassificacao() —
+// combina descricao + palavrasChave (issue #19) no texto que a IA/embedding
+// realmente lê.
+export async function catalogoParaClassificacao(): Promise<Array<{ id: string; nome: string; descricao: string }>> {
   const implementados = Object.entries(fluxosPorId).map(([id, cfg]) => ({ id, nome: cfg.nome, descricao: cfg.descricao }));
-  const planejados = fluxosPlanejados.map((f) => ({ id: f.id, nome: f.nome, descricao: textoParaClassificacao(f) }));
+  const planejados = (await listarFluxosPlanejados()).map((f) => ({ id: f.id, nome: f.nome, descricao: textoParaClassificacao(f) }));
   return [...implementados, ...planejados];
 }

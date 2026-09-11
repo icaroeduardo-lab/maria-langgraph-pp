@@ -1,66 +1,25 @@
-// Fluxos que a Maria já sabe RECONHECER pelo relato (entram na
-// classificação do orquestrador, ver rotas/orquestrador.ts), mas que ainda
-// NÃO têm código implementado (fluxos/<nome>/graph.ts, registro em
-// fluxosPorId). Quando a IA escolhe um destes, o orquestrador não tem grafo
-// pra rodar — cai em handoff_humano, mas loga qual fluxo foi identificado.
-//
-// Serve pra medir demanda real ANTES de codar: dá pra consultar os logs
-// (motivo "fluxo_nao_implementado") e saber qual fluxo pedir prioridade de
-// implementação, sem precisar já ter o código pronto de todos os fluxos
-// planejados pra começar a aprender com o uso real.
-//
-// Pra "ativar" um fluxo planejado: implementa fluxos/<nome>/{graph,state,api}.ts
-// normal, registra em fluxosPorId (fluxos/index.ts) — e REMOVE a entrada
-// correspondente daqui (senão fica duplicado nos dois catálogos).
-export interface FluxoPlanejado {
+// Script de migração ÚNICO (issue #26) — roda 1x pra popular a tabela
+// `fluxos_planejados` (shared/fluxosPlanejadosDb.ts) a partir dos 74
+// registros que antes viviam hardcoded em src/fluxos/catalogo.ts (removido
+// depois desta migração, PR #24 tinha a origem desses dados: 71 de
+// GET /integra/assunto/categorias + 3 achadas só na planilha de
+// palavras-chave). Uso: npm run seed:fluxos-planejados (precisa
+// DATABASE_URL no ambiente/.env).
+import "dotenv/config";
+import pg from "pg";
+import { fluxosPorId } from "../src/fluxos/index.js";
+
+const { Pool } = pg;
+
+interface FluxoPlanejado {
   id: string;
   nome: string;
   descricao: string;
-  // idCategoriaAssunto do Verde (GET /integra/assunto/categorias) que essa
-  // entrada representa — ver issue #19. Guardado pra achar de volta na API
-  // do Verde depois, sem precisar re-consultar a lista inteira; não é usado
-  // pela classificação (ia/classificarFluxo.ts) diretamente, só descricao
-  // (já combinada com palavrasChave, ver textoParaClassificacao abaixo).
   idCategoriaAssuntoVerde: number;
-  // Lista curada de palavras-chave do Verde por categoria (planilha própria,
-  // não é a mesma fonte de /assunto/categorias) — ajuda a IA/embedding a
-  // bater com o jeito coloquial que a pessoa relata, não só a descrição
-  // formal. Combinada com `descricao` em textoParaClassificacao, não usada
-  // isolada. Vazia quando a categoria não tinha nenhuma além do próprio nome
-  // (ex: "faq").
   palavrasChave: string[];
 }
 
-// Combina descricao + palavrasChave num texto só, pro que a IA de
-// classificação/embedding realmente lê (ia/classificarFluxo.ts,
-// shared/embeddingsFluxos.ts) — os dados ficam separados aqui (fiéis à
-// fonte: descricao vem de /assunto/categorias, palavrasChave de outra
-// planilha do Verde), só juntam na hora de montar o texto pra IA.
-export function textoParaClassificacao(f: FluxoPlanejado): string {
-  if (f.palavrasChave.length === 0) return f.descricao;
-  return `${f.descricao} Palavras-chave: ${f.palavrasChave.join(", ")}.`;
-}
-
-// Carregado a partir de GET /integra/assunto/categorias (Verde), confirmado
-// ao vivo 2026-09-10 — 73 categorias no total, menos 2: a categoria
-// "***PO$MA%R***" (idCategoriaAssunto 10129, lixo/teste do Verde) e
-// "VIOLÊNCIA DOMÉSTICA" (10113, já implementada em fluxosPorId — ver
-// idCategoriaAssuntoVerde ali, evita duplicar o mesmo fluxo nos 2 catálogos).
-// Categorias sem descrição própria no Verde receberam uma descrição curta
-// escrita à mão a partir do nome (não são texto oficial do Verde).
-//
-// palavrasChave adicionadas em 2026-09-11 a partir de planilha própria do
-// Verde (palavras-chave por categoria) — cobre as 71 acima + 3 categorias
-// que não apareceram em /assunto/categorias (10133 dívida ativa, 10134
-// imigração e refúgio, 10135 autorização menor redes sociais), descricao
-// escrita à mão pra essas 3 (a planilha só tinha keyword, não descrição).
-// Deduplicadas (case-insensitive) e sem repetir o próprio nome da categoria.
-//
-// RECLAMAÇÃO TRABALHISTA e LOAS têm descrição de redirecionamento
-// permanente ("não atuamos, procure X") — issue #22 vai dar mensagem
-// própria pra elas em vez da genérica de "em construção" (issue #21).
-// FAQ pode não ser um fluxo de verdade — issue #23 decide isso.
-export const fluxosPlanejados: FluxoPlanejado[] = [
+const DADOS_SEED: FluxoPlanejado[] = [
   { id: "89209462-6276-42c9-9c06-62628783dc6d", nome: "pensão alimentícia", descricao: "Atendimento sobre pensão alimentícia", idCategoriaAssuntoVerde: 10016, palavrasChave: ["pensão", "alimentícia", "exoneração", "revisão", "modificação", "regularização", "fgts", "grávida", "grávidicos", "idoso", "pai", "mãe", "alimentos", "execução", "parar de pagar", "mudar o valor", "entrar com pedido de pensão", "pedir pensão para o filho", "cobrar pensão atrasada", "pedir pensão grávida", "aumentar o valor da pensão", "tirar a pensão", "ele não paga a pensão", "acordo de boca sobre pensão", "penção", "alimento pro filho", "valor de pemsão", "execusão de alimentos", "processar o pai da criança", "o pai não ajuda o filho", "ele não ajuda com a criança", "não recebo nada para meu filho", "não recebo ajuda para meu filho", "o pai não ajuda nas despesas", "ele não ajuda com o filho", "abrir processo de pensão"] },
   { id: "c1b3f113-5b2e-45e2-9ca9-ac5ba30bc1fd", nome: "falecimento na família", descricao: "Atendimento para herança, inventário e bens de parentes que faleceram", idCategoriaAssuntoVerde: 10017, palavrasChave: ["alvará", "inventário", "herança", "cremação", "exumação", "partilha de bens", "sepultamento", "enterro", "óbito", "fgts", "testamento", "terreno", "pis", "morte", "certidão de inexistência de dependentes", "cemitério", "enterrar", "sepultar", "retirada restos mortais", "sepultura", "desenterrar", "transcrição", "registro", "sucessão", "herdeiros", "espólio", "certidão", "faleceu", "morreu", "falecido", "deixou", "falescimento", "heransa", "pessoa falecida", "perdi um familiar", "morte na família"] },
   { id: "180001d2-5e0c-4f27-aa13-f425149a1336", nome: "educação, creche, escola", descricao: "Atendimento para vaga, matrícula, cobranças ou problemas com educação", idCategoriaAssuntoVerde: 10019, palavrasChave: ["colégio", "creche", "particular", "pública", "ensino médio", "fundamental", "mensalidade", "dívida", "matrícula", "transferência", "vaga", "mediador", "vestibular", "universidade", "indenização", "cobrança", "direito à educação", "pré-escola", "rematrícula", "fies", "prouni", "histórico escolar", "diploma", "distância da escola", "aluno com deficiência", "transporte escolar", "ensino", "escola", "faculdade", "educação"] },
@@ -136,3 +95,66 @@ export const fluxosPlanejados: FluxoPlanejado[] = [
   { id: "72fabeb1-16f5-4d1d-85ea-9c3759781833", nome: "imigração e refúgio", descricao: "Atendimento sobre imigração, refúgio, asilo e regularização de estrangeiros no Brasil.", idCategoriaAssuntoVerde: 10134, palavrasChave: ["estrangeiro", "imigrante", "migrante", "refugiado", "apátrida", "asilo", "asilado", "regularizar", "pedir refúgio", "renovar refúgio", "renovar rnm", "protocolo de refúgio", "vim de outro país e preciso de documentos", "meu protocolo da polícia federal vai vencer", "como pedir refúgio", "quero tirar o rnm", "venezuela", "haiti", "angola", "síria", "cuba", "colômbia", "orientação", "ajuda"] },
   { id: "883fd726-6970-47d1-b3e1-4105612aa70f", nome: "autorização menor redes sociais", descricao: "Atendimento sobre autorização judicial para menor de idade trabalhar ou monetizar conteúdo em redes sociais (influencer mirim).", idCategoriaAssuntoVerde: 10135, palavrasChave: ["alvará judicial", "postagens pagas", "contéudo", "publicidade", "conta monetizada", "instagram", "trabalho", "remuneração", "infantil", "filho", "monetizar", "menor", "alvará", "trabalhar", "publi", "criança", "mirim", "eca digital", "influencer", "youtube", "tiktok", "canal"] },
 ];
+
+// Mesmas checagens que antes viviam em fluxos/catalogo.test.ts — faz
+// sentido rodar 1x aqui (dado estático, migrado 1x) em vez de manter como
+// suíte de teste perpétua sobre uma tabela que passa a ser editada por SQL.
+function validar(dados: FluxoPlanejado[]): void {
+  const idsImplementados = new Set(
+    Object.values(fluxosPorId)
+      .map((f) => f.idCategoriaAssuntoVerde)
+      .filter((id): id is number => id !== undefined)
+  );
+  const idsVistos = new Set<string>();
+  const categoriasVistas = new Set<number>();
+  for (const f of dados) {
+    if (idsImplementados.has(f.idCategoriaAssuntoVerde)) {
+      throw new Error(`${f.nome} (idCategoriaAssuntoVerde ${f.idCategoriaAssuntoVerde}) duplica um fluxo já implementado`);
+    }
+    if (categoriasVistas.has(f.idCategoriaAssuntoVerde)) {
+      throw new Error(`idCategoriaAssuntoVerde ${f.idCategoriaAssuntoVerde} repetido dentro do próprio seed (${f.nome})`);
+    }
+    categoriasVistas.add(f.idCategoriaAssuntoVerde);
+    if (f.descricao.trim().length === 0) throw new Error(`${f.nome} está com descricao vazia`);
+    if (idsVistos.has(f.id)) throw new Error(`uuid ${f.id} repetido dentro do seed (${f.nome})`);
+    if (f.id in fluxosPorId) throw new Error(`${f.id} colide com um fluxo já implementado`);
+    idsVistos.add(f.id);
+    if (!Array.isArray(f.palavrasChave)) throw new Error(`${f.nome} deveria ter palavrasChave como array`);
+  }
+  if (dados.length !== 74) throw new Error(`esperava 74 registros no seed, achou ${dados.length} — dado mudou? confirmar antes de seguir`);
+}
+
+async function seed(): Promise<void> {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL obrigatório pra rodar o seed");
+
+  validar(DADOS_SEED);
+
+  const pool = new Pool({ connectionString: url });
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fluxos_planejados (
+      id TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      descricao TEXT NOT NULL,
+      id_categoria_assunto_verde INTEGER NOT NULL,
+      palavras_chave TEXT[] NOT NULL DEFAULT '{}'
+    )
+  `);
+
+  for (const f of DADOS_SEED) {
+    await pool.query(
+      `INSERT INTO fluxos_planejados (id, nome, descricao, id_categoria_assunto_verde, palavras_chave)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET nome = $2, descricao = $3, id_categoria_assunto_verde = $4, palavras_chave = $5`,
+      [f.id, f.nome, f.descricao, f.idCategoriaAssuntoVerde, f.palavrasChave]
+    );
+  }
+
+  console.log(`seed concluído: ${DADOS_SEED.length} fluxos planejados inseridos/atualizados em fluxos_planejados`);
+  await pool.end();
+}
+
+seed().catch((erro) => {
+  console.error("seed falhou:", erro);
+  process.exit(1);
+});

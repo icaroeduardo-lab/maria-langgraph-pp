@@ -304,7 +304,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
 
       const fluxoId = body?.flowId;
       if (!fluxoId) return reply.code(400).send({ erro: "flowId obrigatório" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       const resultado = await criarAtendimento(fluxo, fluxoId, body?.chatId, body?.dadosConhecidos, req.log);
@@ -336,7 +336,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const store = await obterAtendimentosStore();
       const fluxoId = await store.buscarFlowId(chatId);
       if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
@@ -385,7 +385,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const store = await obterAtendimentosStore();
       const fluxoId = await store.buscarFlowId(chatId);
       if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
