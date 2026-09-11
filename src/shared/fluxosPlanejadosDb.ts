@@ -8,6 +8,14 @@ const { Pool } = pg;
 // implementado (fluxos/<nome>/graph.ts, registro em fluxosPorId). Até a
 // issue #26, isso era um array hardcoded em fluxos/catalogo.ts — agora mora
 // nesta tabela, editável sem deploy.
+//
+// Pra "ativar" um fluxo planejado (implementar de verdade): ANTES de
+// codar, consulte `perguntas`/`assuntos_verde` (shared/perguntasDb.ts,
+// issue #20) pelo `id` desta linha — a árvore de perguntas e os documentos
+// necessários já foram coletados do Verde, evita redescobrir isso na mão.
+// Depois de implementar fluxos/<nome>/{graph,state,api}.ts normal e
+// registrar em fluxosPorId (fluxos/index.ts), REMOVA a linha correspondente
+// desta tabela (senão fica duplicado nos dois catálogos).
 export interface FluxoPlanejado {
   id: string;
   nome: string;
