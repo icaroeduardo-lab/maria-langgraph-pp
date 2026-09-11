@@ -1,4 +1,5 @@
 import { ChatBedrockConverse } from "@langchain/aws";
+import { AIMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { logger } from "../shared/logger.js";
 import { contextoAtual } from "../shared/contexto.js";
@@ -22,6 +23,10 @@ export interface ResultadoClassificacaoGenerica {
   // original, etc), este módulo nunca "chuta" um candidato errado.
   escolhaId: string | undefined;
   viaIA: boolean;
+  // ausente quando viaIA:false (não teve chamada de verdade, não gastou nada).
+  tokensEntrada?: number;
+  tokensSaida?: number;
+  tokensTotal?: number;
 }
 
 // `sistema` já vem PRONTO do chamador (papel + lista de candidatos + regras
@@ -34,12 +39,23 @@ export async function classificarEntreOpcoes(mensagem: string, sistema: string, 
     const Schema = z.object({
       escolhaId: z.enum(["nenhum", ...ids]).describe('id do candidato que melhor atende, ou "nenhum" se não bater com confiança em nenhum'),
     });
-    const comSaidaEstruturada = modelo.withStructuredOutput(Schema);
+    // includeRaw:true devolve { raw, parsed } em vez de só o objeto
+    // parseado — raw é a AIMessage crua, com usage_metadata (tokens de
+    // entrada/saída/total). Sem isso não tem como saber quanto essa
+    // chamada custou (issue #34).
+    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: sistema },
       { role: "user", content: mensagem },
     ]);
-    return { escolhaId: resultado.escolhaId === "nenhum" ? undefined : resultado.escolhaId, viaIA: true };
+    const uso = resultado.raw instanceof AIMessage ? resultado.raw.usage_metadata : undefined;
+    return {
+      escolhaId: resultado.parsed.escolhaId === "nenhum" ? undefined : resultado.parsed.escolhaId,
+      viaIA: true,
+      tokensEntrada: uso?.input_tokens,
+      tokensSaida: uso?.output_tokens,
+      tokensTotal: uso?.total_tokens,
+    };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[classificar] falha ao classificar, tratando como não identificado");
     return { escolhaId: undefined, viaIA: false };
@@ -52,6 +68,10 @@ export interface ResultadoClassificacaoMultipla {
   // desambiguação). Diferente de classificarEntreOpcoes, que força 1 só.
   ids: string[];
   viaIA: boolean;
+  // ausente quando viaIA:false (não teve chamada de verdade, não gastou nada).
+  tokensEntrada?: number;
+  tokensSaida?: number;
+  tokensTotal?: number;
 }
 
 // Mesma ideia de classificarEntreOpcoes, mas devolve TODOS os candidatos
@@ -68,12 +88,19 @@ export async function classificarMultiploEntreOpcoes(mensagem: string, sistema: 
           "ids de TODOS os candidatos que plausivelmente atendem ao relato — lista vazia se nenhum bater com confiança, 1 item se for claro, vários se o relato for genuinamente ambíguo entre mais de um. Nunca inventa id fora da lista."
         ),
     });
-    const comSaidaEstruturada = modelo.withStructuredOutput(Schema);
+    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: sistema },
       { role: "user", content: mensagem },
     ]);
-    return { ids: resultado.idsPlausiveis, viaIA: true };
+    const uso = resultado.raw instanceof AIMessage ? resultado.raw.usage_metadata : undefined;
+    return {
+      ids: resultado.parsed.idsPlausiveis,
+      viaIA: true,
+      tokensEntrada: uso?.input_tokens,
+      tokensSaida: uso?.output_tokens,
+      tokensTotal: uso?.total_tokens,
+    };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[classificar] falha ao classificar (múltiplo), tratando como não identificado");
     return { ids: [], viaIA: false };

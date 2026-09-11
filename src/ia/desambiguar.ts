@@ -1,4 +1,5 @@
 import { ChatBedrockConverse } from "@langchain/aws";
+import { AIMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { logger } from "../shared/logger.js";
 import { contextoAtual } from "../shared/contexto.js";
@@ -19,6 +20,10 @@ export interface CandidatoParaDesambiguar {
 export interface ResultadoDesambiguacao {
   pergunta: string;
   viaIA: boolean;
+  // ausente quando viaIA:false (não teve chamada de verdade, não gastou nada).
+  tokensEntrada?: number;
+  tokensSaida?: number;
+  tokensTotal?: number;
 }
 
 const TEXTO_FALLBACK = "Pra te ajudar melhor, qual dessas opções descreve o que você precisa?";
@@ -45,7 +50,9 @@ export async function gerarPerguntaDesambiguacao(relato: string, candidatos: Can
 Opções possíveis:
 ${opcoes}
 Gere 1 pergunta curta, natural, em português, que ajude a pessoa a escolher entre essas opções — foque na diferença prática entre elas, sem citar nomes técnicos/internos.`;
-    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaPergunta);
+    // includeRaw:true devolve { raw, parsed } em vez de só o objeto
+    // parseado — raw é a AIMessage crua, com usage_metadata (issue #34).
+    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaPergunta, { includeRaw: true });
     // Converse API exige que a conversa comece com mensagem "user" — nunca
     // só "system" (achado ao vivo 2026-09-11, ValidationException). O relato
     // em si é o conteúdo natural dessa mensagem, não precisa duplicar no
@@ -54,7 +61,14 @@ Gere 1 pergunta curta, natural, em português, que ajude a pessoa a escolher ent
       { role: "system", content: sistema },
       { role: "user", content: relato },
     ]);
-    return { pergunta: resultado.pergunta, viaIA: true };
+    const uso = resultado.raw instanceof AIMessage ? resultado.raw.usage_metadata : undefined;
+    return {
+      pergunta: resultado.parsed.pergunta,
+      viaIA: true,
+      tokensEntrada: uso?.input_tokens,
+      tokensSaida: uso?.output_tokens,
+      tokensTotal: uso?.total_tokens,
+    };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[desambiguar] falha ao gerar pergunta, usando texto genérico");
     return { pergunta: TEXTO_FALLBACK, viaIA: false };

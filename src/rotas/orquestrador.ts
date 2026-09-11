@@ -107,9 +107,11 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
           ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
           : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
 
+      const { tokensGastosRodada } = resultado as { tokensGastosRodada?: number };
+
       const interrupt = extrairInterruptDoInvoke(resultado);
       if (interrupt) {
-        req.log.info({ chatId, tipoResposta: interrupt.tipo }, "orquestrador: pergunta de desambiguação enviada");
+        req.log.info({ chatId, tipoResposta: interrupt.tipo, tokensTotal: tokensGastosRodada }, "orquestrador: pergunta de desambiguação enviada");
         return reply.code(200).send({
           resposta: interrupt.pergunta,
           tipoResposta: interrupt.tipo,
@@ -122,7 +124,7 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       const { statusFinal, flowIdEscolhido } = resultado as { statusFinal?: string; flowIdEscolhido?: string };
 
       if (statusFinal !== "identificado" || !flowIdEscolhido) {
-        req.log.info({ chatId }, "orquestrador: fluxo não identificado, handoff_humano direto");
+        req.log.info({ chatId, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo não identificado, handoff_humano direto");
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
@@ -140,7 +142,7 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       // fluxo pode ser um implementado de verdade OU o grafo padrão
       // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
       // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
-      req.log.info({ chatId, flowId: flowIdEscolhido }, "orquestrador: fluxo identificado");
+      req.log.info({ chatId, flowId: flowIdEscolhido, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo identificado");
       const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, body?.dadosConhecidos, req.log);
       if (resultadoAtendimento.statusCode !== 200) return reply.code(resultadoAtendimento.statusCode).send(resultadoAtendimento.corpo);
       return reply.code(200).header("Location", resultadoAtendimento.location).send(resultadoAtendimento.corpo);
