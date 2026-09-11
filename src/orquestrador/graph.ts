@@ -30,7 +30,7 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   // pool — se o filtro fosse feito só dentro do pool (que em teste vem de
   // embedding fake, sem significado semântico real), o id mockado podia
   // simplesmente não estar lá, quebrando o teste por sorte de hash.
-  const catalogoCompleto = catalogoParaClassificacao();
+  const catalogoCompleto = await catalogoParaClassificacao();
   const pool: CandidatoOrquestrador[] = state.candidatosRestantes ?? (await buscarCandidatos(state.mensagem, CANDIDATOS_MAXIMOS, catalogoCompleto));
   const { ids } = await classificarFluxosPlausiveis(state.mensagem, pool);
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));

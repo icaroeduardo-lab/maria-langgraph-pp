@@ -126,7 +126,7 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
-      const fluxo = buscarFluxo(flowIdEscolhido);
+      const fluxo = await buscarFluxo(flowIdEscolhido);
       if (!fluxo) {
         // Não deveria acontecer — flowIdEscolhido só vem de candidatos do
         // catálogo (catalogoParaClassificacao, via orquestrador/graph.ts), e

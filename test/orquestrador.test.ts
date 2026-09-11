@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { montarApp } from "../src/app.js";
 import { ID_PESSOA_PRESA, ID_VIOLENCIA_DOMESTICA } from "../src/fluxos/index.js";
-import { fluxosPlanejados } from "../src/fluxos/catalogo.js";
+import { adicionarPlanejadoDeTeste, removerPlanejadoDeTeste } from "../src/shared/fluxosPlanejadosDb.js";
 
 // Testa só a MECÂNICA da rota do orquestrador (rotas/orquestrador.ts) —
 // resolve fluxo por classificação em vez de flowId explícito. Classificação
@@ -54,7 +54,7 @@ test("classificação não identifica nenhum fluxo → handoff_humano direto, se
   }
 });
 
-// Mede demanda de fluxo ainda não codado (ver fluxos/catalogo.ts) — IA
+// Mede demanda de fluxo ainda não codado (tabela fluxos_planejados, issue #26) — IA
 // "reconhece" pelo relato, cai no grafo padrão compartilhado (issue #21),
 // conclui de verdade (não é mais handoff especial). flowId aparece na
 // resposta/log — é isso que dá a métrica de demanda, sem precisar de campo
@@ -67,7 +67,7 @@ test("classificação identifica fluxo PLANEJADO (sem código ainda) → grafo p
     idCategoriaAssuntoVerde: 99999,
     palavrasChave: [],
   };
-  fluxosPlanejados.push(fluxoFalso);
+  await adicionarPlanejadoDeTeste(fluxoFalso);
   const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
   process.env.MOCK_CLASSIFICACAO_FLOWID = fluxoFalso.id;
   try {
@@ -85,7 +85,7 @@ test("classificação identifica fluxo PLANEJADO (sem código ainda) → grafo p
     assert.match(body.resposta, /sendo construíd/i);
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWID = original;
-    fluxosPlanejados.pop();
+    await removerPlanejadoDeTeste(fluxoFalso.id);
   }
 });
 
@@ -108,7 +108,8 @@ test("2 categorias planejadas diferentes usam o mesmo grafo padrão sem misturar
     idCategoriaAssuntoVerde: 88882,
     palavrasChave: [],
   };
-  fluxosPlanejados.push(planejadoA, planejadoB);
+  await adicionarPlanejadoDeTeste(planejadoA);
+  await adicionarPlanejadoDeTeste(planejadoB);
   const original = process.env.MOCK_CLASSIFICACAO_FLOWID;
   try {
     const app = await montarApp();
@@ -132,8 +133,8 @@ test("2 categorias planejadas diferentes usam o mesmo grafo padrão sem misturar
     assert.equal(getB.json().flowId, planejadoB.id, "GET do chatId B não deveria vazar o flowId de A");
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWID = original;
-    fluxosPlanejados.pop();
-    fluxosPlanejados.pop();
+    await removerPlanejadoDeTeste(planejadoA.id);
+    await removerPlanejadoDeTeste(planejadoB.id);
   }
 });
 
