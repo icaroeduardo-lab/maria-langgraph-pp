@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { montarApp } from "../src/app.js";
 import { ID_PESSOA_PRESA, ID_VIOLENCIA_DOMESTICA } from "../src/fluxos/index.js";
 import { adicionarPlanejadoDeTeste, removerPlanejadoDeTeste } from "../src/shared/fluxosPlanejadosDb.js";
+import { obterPerguntasStore, type PerguntaArvore } from "../src/shared/perguntasDb.js";
+import { randomUUID } from "node:crypto";
 
 // Testa só a MECÂNICA da rota do orquestrador (rotas/orquestrador.ts) —
 // resolve fluxo por classificação em vez de flowId explícito. Classificação
@@ -230,6 +232,81 @@ test("relato ambíguo entre 2 fluxos → pergunta de desambiguação → respost
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
     process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
+  }
+});
+
+function perguntaRaiz(flowId: string, overrides: Partial<PerguntaArvore> = {}): PerguntaArvore {
+  return {
+    id: randomUUID(),
+    flowId,
+    idItemCategoria: null,
+    veioDaRespostaId: null,
+    textoPergunta: "pergunta raiz de teste",
+    tipo: "sim_nao",
+    opcoes: [{ id: 1, resposta: "SIM" }, { id: 2, resposta: "NÃO" }],
+    ordem: 0,
+    ...overrides,
+  };
+}
+
+// Issue #32 — quando os 2 candidatos ambíguos compartilham literalmente a
+// mesma pergunta raiz do Verde (mesmo texto + mesmas opções), usa esse
+// texto real em vez de gerar pergunta genérica por IA.
+test("desambiguação com pergunta raiz IDÊNTICA nos 2 candidatos → usa texto real do banco, não a IA", async () => {
+  const store = await obterPerguntasStore();
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
+  const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  process.env.MOCK_CLASSIFICACAO_FLOWIDS = `${ID_PESSOA_PRESA},${ID_VIOLENCIA_DOMESTICA}`;
+  delete process.env.MOCK_CLASSIFICACAO_FLOWID;
+  await store.inserirPergunta(perguntaRaiz(ID_PESSOA_PRESA, { textoPergunta: "JÁ TEM PROCESSO JUDICIAL?" }));
+  await store.inserirPergunta(perguntaRaiz(ID_VIOLENCIA_DOMESTICA, { textoPergunta: "JÁ TEM PROCESSO JUDICIAL?" }));
+  try {
+    const app = await montarApp();
+    const res = await app.inject({ method: "POST", url: BASE, payload: { chatId: novoChatId(), mensagem: "relato ambíguo" }, headers: AUTH });
+    assert.equal(res.json().resposta, "JÁ TEM PROCESSO JUDICIAL?", "deveria usar o texto real do banco, não a pergunta genérica de IA");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
+    process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
+    await store.limparFlow(ID_PESSOA_PRESA);
+    await store.limparFlow(ID_VIOLENCIA_DOMESTICA);
+  }
+});
+
+test("desambiguação com pergunta raiz DIFERENTE entre os candidatos → cai no fallback de IA", async () => {
+  const store = await obterPerguntasStore();
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
+  const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  process.env.MOCK_CLASSIFICACAO_FLOWIDS = `${ID_PESSOA_PRESA},${ID_VIOLENCIA_DOMESTICA}`;
+  delete process.env.MOCK_CLASSIFICACAO_FLOWID;
+  await store.inserirPergunta(perguntaRaiz(ID_PESSOA_PRESA, { textoPergunta: "pergunta A" }));
+  await store.inserirPergunta(perguntaRaiz(ID_VIOLENCIA_DOMESTICA, { textoPergunta: "pergunta B" }));
+  try {
+    const app = await montarApp();
+    const res = await app.inject({ method: "POST", url: BASE, payload: { chatId: novoChatId(), mensagem: "relato ambíguo" }, headers: AUTH });
+    assert.match(res.json().resposta, /qual dessas opções descreve/i, "pergunta raiz diferente entre os 2 não é match — deveria cair no fallback de IA");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
+    process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
+    await store.limparFlow(ID_PESSOA_PRESA);
+    await store.limparFlow(ID_VIOLENCIA_DOMESTICA);
+  }
+});
+
+test("desambiguação com só 1 dos 2 candidatos tendo pergunta no banco → cai no fallback de IA", async () => {
+  const store = await obterPerguntasStore();
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
+  const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  process.env.MOCK_CLASSIFICACAO_FLOWIDS = `${ID_PESSOA_PRESA},${ID_VIOLENCIA_DOMESTICA}`;
+  delete process.env.MOCK_CLASSIFICACAO_FLOWID;
+  await store.inserirPergunta(perguntaRaiz(ID_PESSOA_PRESA, { textoPergunta: "só pessoa presa tem essa pergunta" }));
+  try {
+    const app = await montarApp();
+    const res = await app.inject({ method: "POST", url: BASE, payload: { chatId: novoChatId(), mensagem: "relato ambíguo" }, headers: AUTH });
+    assert.match(res.json().resposta, /qual dessas opções descreve/i, "faltando pergunta pra 1 dos candidatos — deveria cair no fallback de IA");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
+    process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
+    await store.limparFlow(ID_PESSOA_PRESA);
   }
 });
 

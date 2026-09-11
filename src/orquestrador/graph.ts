@@ -6,6 +6,7 @@ import { classificarFluxosPlausiveis } from "../ia/classificarFluxos.js";
 import { gerarPerguntaDesambiguacao } from "../ia/desambiguar.js";
 import { criarCheckpointer } from "../shared/checkpointer.js";
 import { catalogoParaClassificacao } from "../fluxos/index.js";
+import { obterPerguntasStore, type PerguntaArvore } from "../shared/perguntasDb.js";
 
 // Mesmo valor de antes da issue #28 (era CANDIDATOS_MAXIMOS em
 // rotas/orquestrador.ts) — quantos candidatos entram no prompt de
@@ -56,8 +57,40 @@ async function naoIdentificado(): Promise<Partial<OrquestradorStateType>> {
   return { statusFinal: "nao_identificado" };
 }
 
+// Mesmo conjunto de respostas (texto, sem depender de ordem) — critério pra
+// considerar 2 perguntas raiz do Verde como "a mesma pergunta de verdade",
+// não só coincidência de texto (issue #32).
+function mesmoConjuntoDeOpcoes(a: PerguntaArvore["opcoes"], b: PerguntaArvore["opcoes"]): boolean {
+  if (a.length !== b.length) return false;
+  const textosA = a.map((o) => o.resposta.trim().toUpperCase()).sort();
+  const textosB = b.map((o) => o.resposta.trim().toUpperCase()).sort();
+  return textosA.every((t, i) => t === textosB[i]);
+}
+
+// Issue #32: quando TODOS os candidatos restantes compartilham literalmente
+// a mesma pergunta raiz do Verde (mesmo texto + mesmas opções), usa esse
+// texto real em vez de gerar uma pergunta genérica por IA. Achado rodando o
+// crawl da #20 contra os 71 fluxos planejados: só ~3 grupos de categorias
+// compartilham pergunta raiz (ex: "O ATENDIMENTO É PARA:" em 16 categorias)
+// — a maioria não tem par, cai no fallback de IA normalmente, é esperado.
+// Só olha `ordem = 0` (raiz) de propósito — descer mais na árvore fica pra
+// depois, cobre só o caso mais simples/comum por ora.
+async function buscarPerguntaRealCompartilhada(candidatos: CandidatoOrquestrador[]): Promise<string | undefined> {
+  if (candidatos.length < 2) return undefined;
+  const store = await obterPerguntasStore();
+  const raizes = await Promise.all(candidatos.map((c) => store.buscarPerguntaRaiz(c.id)));
+  const primeira = raizes[0];
+  if (!primeira) return undefined;
+  const todasIguais = raizes.every(
+    (r) => r !== undefined && r.textoPergunta === primeira.textoPergunta && mesmoConjuntoDeOpcoes(r.opcoes, primeira.opcoes)
+  );
+  return todasIguais ? primeira.textoPergunta : undefined;
+}
+
 async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Promise<Partial<OrquestradorStateType>> {
   const candidatos = state.candidatosRestantes ?? [];
+  const perguntaDoBanco = await buscarPerguntaRealCompartilhada(candidatos);
+  if (perguntaDoBanco) return { perguntaAtualTexto: perguntaDoBanco };
   const { pergunta } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
   return { perguntaAtualTexto: pergunta };
 }
