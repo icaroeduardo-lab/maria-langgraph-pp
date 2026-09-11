@@ -1,14 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { buscarFluxo, catalogoParaClassificacao } from "../fluxos/index.js";
-import { classificarFluxo } from "../ia/classificarFluxo.js";
-import { buscarCandidatos } from "../shared/embeddingsFluxos.js";
-import { criarAtendimento } from "./atendimentos.js";
-
-// Quantos candidatos entram no prompt de classificação (ia/classificarFluxo.ts)
-// — com o catálogo de hoje (2 fluxos) nunca corta nada; existe pra quando o
-// catálogo crescer pra ~80 (ver issue #8). Número redondo, sem tuning fino
-// ainda — ajustar se a precisão da classificação incomodar em produção.
-const CANDIDATOS_MAXIMOS = 10;
+import { Command } from "@langchain/langgraph";
+import { buscarFluxo } from "../fluxos/index.js";
+import { grafo as grafoOrquestrador } from "../orquestrador/graph.js";
+import { criarAtendimento, extrairInterruptDoInvoke } from "./atendimentos.js";
 
 const erroSchema = { type: "object", properties: { erro: { type: "string" } } } as const;
 
@@ -25,7 +20,11 @@ const respostaOrquestradorSchema = {
       description: "Só presente quando status:handoff_humano — relato não bateu com nenhum fluxo do catálogo (implementado ou planejado)",
     },
     metadados: { type: "object", additionalProperties: true },
-    flowId: { type: "string", description: "Fluxo escolhido pela classificação — só presente quando um fluxo IMPLEMENTADO rodou de verdade" },
+    flowId: {
+      type: "string",
+      description:
+        "Fluxo escolhido — presente quando o orquestrador convergiu pra exatamente 1 fluxo (implementado de verdade ou grafo padrão de planejado, ver issue #21). AUSENTE enquanto status:em_andamento for uma pergunta de desambiguação (issue #28, ainda decidindo qual fluxo).",
+    },
     _links: { type: "object", additionalProperties: true },
   },
 } as const;
@@ -33,34 +32,34 @@ const respostaOrquestradorSchema = {
 const MENSAGEM_NAO_IDENTIFICADO =
   "Não consegui identificar como te ajudar a partir do que você escreveu. Vou encaminhar seu atendimento pra um atendente humano confirmar.";
 
-function respostaHandoffSemFluxo(chatId: string | undefined, motivo: "nao_identificado") {
+function respostaHandoffSemFluxo(chatId: string, motivo: "nao_identificado") {
   return {
     resposta: MENSAGEM_NAO_IDENTIFICADO,
     tipoResposta: "texto",
     status: "handoff_humano",
     motivoHandoff: motivo,
-    _links: { self: { href: chatId ? `/atendimentos/${chatId}` : undefined } },
+    _links: { self: { href: `/atendimentos/${chatId}` } },
   };
 }
 
 // POST /atendimentos/orquestrador — alternativa a POST /atendimentos pra
 // quem NÃO sabe de antemão qual flowId usar: manda um relato livre
-// (`mensagem`) em vez de `flowId`, a Maria classifica com IA
-// (ia/classificarFluxo.ts) qual fluxo atende o caso e cria o atendimento
-// normalmente nele — dali em diante é o MESMO atendimento de sempre
-// (GET/POST /atendimentos/respostas funcionam igual, já registrado na
-// tabela chatId→flowId).
+// (`mensagem`) em vez de `flowId`, a Maria classifica com IA qual fluxo
+// atende o caso e cria o atendimento normalmente nele — dali em diante é o
+// MESMO atendimento de sempre (GET/POST /atendimentos/respostas funcionam
+// igual, já registrado na tabela chatId→flowId).
 //
-// Criação manual (POST /atendimentos com flowId explícito) continua
-// existindo do lado dela, sem mudança — esta rota é só um jeito A MAIS de
-// chegar no mesmo lugar.
+// Desde a issue #28, a classificação pode precisar de 1+ rodadas de
+// desambiguação ANTES de chegar num flowId só — o orquestrador em si agora
+// é um grafo com estado próprio (src/orquestrador/graph.ts), pausando com
+// interrupt() igual qualquer outro fluxo. thread_id usa um prefixo
+// (`orquestrador:${chatId}`) — namespace de checkpoint SEPARADO do fluxo
+// real que for escolhido no final (que usa o chatId puro), pra não colidir
+// checkpoint de 2 grafos diferentes no mesmo thread_id.
 //
-// A classificação usa o CATÁLOGO COMPLETO (fluxos/index.ts::catalogoParaClassificacao)
-// — implementados (fluxosPorId, com grafo de verdade) + planejados
-// (fluxos/catalogo.ts, só descrição, sem código ainda). Isso deixa a IA
-// "reconhecer" um fluxo que ainda não foi codado — útil pra medir demanda
-// real antes de implementar (ver fluxos/catalogo.ts). Quando isso acontece,
-// motivoHandoff:"fluxo_nao_implementado" e loga qual fluxo foi identificado.
+// Enquanto está desambiguando: manda `resposta` (não `mensagem`) de novo
+// pra ESTA MESMA rota, com o mesmo chatId — só depois que resolve pra 1
+// fluxo (ou pra "nenhum") é que aparece flowId/status concluido/handoff.
 export function registrarRotaOrquestrador(app: FastifyInstance): void {
   app.post(
     "/atendimentos/orquestrador",
@@ -68,65 +67,83 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       schema: {
         tags: ["atendimentos"],
         security: [{ bearerAuth: [] }],
-        summary: "Cria um atendimento identificando o fluxo automaticamente a partir de um relato livre",
+        summary: "Cria um atendimento identificando o fluxo automaticamente a partir de um relato livre (com possíveis perguntas de desambiguação antes)",
         body: {
           type: "object",
           properties: {
             chatId: { type: "string", description: "Id atribuído pela Tykhe — obrigatório fora de NODE_ENV=test" },
-            mensagem: { type: "string", description: "Relato livre — usado pra identificar qual fluxo atende o caso" },
+            mensagem: { type: "string", description: "Relato livre — só na 1ª chamada, usado pra identificar qual fluxo atende o caso" },
+            resposta: {
+              type: "string",
+              description: "Resposta a uma pergunta de desambiguação anterior — manda isso (não mensagem) enquanto status:em_andamento sem flowId",
+            },
             dadosConhecidos: {
               type: "object",
               additionalProperties: true,
-              description: "Mesmo campo de POST /atendimentos — só é usado se um fluxo IMPLEMENTADO for identificado.",
+              description: "Mesmo campo de POST /atendimentos — só é usado se/quando um fluxo for identificado de verdade.",
             },
           },
-          required: ["mensagem"],
         },
         response: { 200: respostaOrquestradorSchema, 400: erroSchema, 409: erroSchema },
       },
     },
     async (req, reply) => {
       const body = req.body as
-        | { chatId?: string; mensagem?: string; dadosConhecidos?: Record<string, unknown> }
+        | { chatId?: string; mensagem?: string; resposta?: string; dadosConhecidos?: Record<string, unknown> }
         | undefined;
 
-      const mensagem = body?.mensagem;
-      if (!mensagem) return reply.code(400).send({ erro: "mensagem obrigatória" });
-
-      const catalogo = catalogoParaClassificacao();
-      const candidatos = await buscarCandidatos(mensagem, CANDIDATOS_MAXIMOS, catalogo);
-      req.log.info({ chatId: body?.chatId, totalCatalogo: catalogo.length, candidatos: candidatos.length }, "orquestrador: retrieval de candidatos");
-      const classificacao = await classificarFluxo(mensagem, candidatos);
-
-      if (!classificacao.flowId) {
-        req.log.info({ chatId: body?.chatId, viaIA: classificacao.viaIA }, "orquestrador: fluxo não identificado, handoff_humano direto");
-        return reply.code(200).send(respostaHandoffSemFluxo(body?.chatId, "nao_identificado"));
+      if (body?.mensagem === undefined && body?.resposta === undefined) {
+        return reply.code(400).send({ erro: "mensagem (1ª chamada) ou resposta (continuação de desambiguação) obrigatório" });
       }
 
-      const fluxo = buscarFluxo(classificacao.flowId);
+      const chatIdBody = body?.chatId;
+      if (!chatIdBody && process.env.NODE_ENV !== "test") return reply.code(400).send({ erro: "chatId obrigatório" });
+      const chatId = chatIdBody || randomUUID();
+
+      const config = { configurable: { thread_id: `orquestrador:${chatId}` } };
+
+      const resultado =
+        body?.resposta !== undefined
+          ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
+          : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
+
+      const interrupt = extrairInterruptDoInvoke(resultado);
+      if (interrupt) {
+        req.log.info({ chatId, tipoResposta: interrupt.tipo }, "orquestrador: pergunta de desambiguação enviada");
+        return reply.code(200).send({
+          resposta: interrupt.pergunta,
+          tipoResposta: interrupt.tipo,
+          opcoes: interrupt.opcoes,
+          status: "em_andamento",
+          _links: { self: { href: `/atendimentos/${chatId}` }, responder: { href: "/atendimentos/orquestrador", method: "POST" } },
+        });
+      }
+
+      const { statusFinal, flowIdEscolhido } = resultado as { statusFinal?: string; flowIdEscolhido?: string };
+
+      if (statusFinal !== "identificado" || !flowIdEscolhido) {
+        req.log.info({ chatId }, "orquestrador: fluxo não identificado, handoff_humano direto");
+        return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
+      }
+
+      const fluxo = buscarFluxo(flowIdEscolhido);
       if (!fluxo) {
-        // Não deveria acontecer — classificacao.flowId só vem de
-        // catalogoParaClassificacao() (fluxosPorId + fluxosPlanejados), e
-        // buscarFluxo() resolve os dois (implementado de verdade ou grafo
-        // padrão, ver issue #21). Cair aqui é inconsistência real entre os
-        // catálogos, não um caminho esperado — trata como não identificado
-        // em vez de quebrar o atendimento.
-        req.log.error(
-          { chatId: body?.chatId, flowId: classificacao.flowId },
-          "orquestrador: flowId classificado não existe em nenhum catálogo (inconsistência)"
-        );
-        return reply.code(200).send(respostaHandoffSemFluxo(body?.chatId, "nao_identificado"));
+        // Não deveria acontecer — flowIdEscolhido só vem de candidatos do
+        // catálogo (catalogoParaClassificacao, via orquestrador/graph.ts), e
+        // buscarFluxo() resolve os dois casos (implementado de verdade ou
+        // grafo padrão, issue #21). Cair aqui é inconsistência real entre os
+        // catálogos, não um caminho esperado.
+        req.log.error({ chatId, flowId: flowIdEscolhido }, "orquestrador: flowId identificado não existe em nenhum catálogo (inconsistência)");
+        return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
       // fluxo pode ser um implementado de verdade OU o grafo padrão
       // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
       // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
-      req.log.info({ chatId: body?.chatId, flowId: classificacao.flowId, viaIA: classificacao.viaIA }, "orquestrador: fluxo identificado");
-      const resultado = await criarAtendimento(fluxo, classificacao.flowId, body?.chatId, body?.dadosConhecidos, req.log);
-      if (resultado.statusCode !== 200) return reply.code(resultado.statusCode).send(resultado.corpo);
-      // resultado.corpo já vem com flowId (montarRespostaAtendimento manda
-      // sempre, ver rotas/atendimentos.ts) — não precisa injetar de novo.
-      return reply.code(200).header("Location", resultado.location).send(resultado.corpo);
+      req.log.info({ chatId, flowId: flowIdEscolhido }, "orquestrador: fluxo identificado");
+      const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, body?.dadosConhecidos, req.log);
+      if (resultadoAtendimento.statusCode !== 200) return reply.code(resultadoAtendimento.statusCode).send(resultadoAtendimento.corpo);
+      return reply.code(200).header("Location", resultadoAtendimento.location).send(resultadoAtendimento.corpo);
     }
   );
 }

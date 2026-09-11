@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { montarApp } from "../src/app.js";
-import { ID_PESSOA_PRESA } from "../src/fluxos/index.js";
+import { ID_PESSOA_PRESA, ID_VIOLENCIA_DOMESTICA } from "../src/fluxos/index.js";
 import { fluxosPlanejados } from "../src/fluxos/catalogo.js";
 
 // Testa só a MECÂNICA da rota do orquestrador (rotas/orquestrador.ts) —
 // resolve fluxo por classificação em vez de flowId explícito. Classificação
-// em si é mockada via MOCK_CLASSIFICACAO_FLOWID (ver ia/classificarFluxo.ts)
-// — NODE_ENV=test nunca chama Bedrock de verdade.
+// em si é mockada via MOCK_CLASSIFICACAO_FLOWID/FLOWIDS (ver
+// ia/classificarFluxos.ts) — NODE_ENV=test nunca chama Bedrock de verdade.
+// MOCK_CLASSIFICACAO_FLOWIDS (plural, separado por vírgula) simula vários
+// candidatos plausíveis — issue #28, desambiguação.
 
 let contador = 0;
 function novoChatId() {
@@ -186,5 +188,77 @@ test("chatId já existe em outro flowId → 409, mesma proteção da criação m
     assert.equal(res.statusCode, 409);
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWID = original;
+  }
+});
+
+// Issue #28 — desambiguação. Relato bate com 2+ candidatos plausíveis: o
+// orquestrador pergunta em vez de chutar 1, e a resposta reduz pra 1 só.
+test("relato ambíguo entre 2 fluxos → pergunta de desambiguação → resposta resolve pra 1 só", async () => {
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
+  const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  process.env.MOCK_CLASSIFICACAO_FLOWIDS = `${ID_PESSOA_PRESA},${ID_VIOLENCIA_DOMESTICA}`;
+  delete process.env.MOCK_CLASSIFICACAO_FLOWID;
+  try {
+    const app = await montarApp();
+    const chatId = novoChatId();
+
+    const r1 = await app.inject({
+      method: "POST",
+      url: BASE,
+      payload: { chatId, mensagem: "relato que bate com 2 fluxos" },
+      headers: AUTH,
+    });
+    const body1 = r1.json();
+    assert.equal(r1.statusCode, 200);
+    assert.equal(body1.status, "em_andamento");
+    assert.equal(body1.flowId, undefined, "não deveria ter flowId enquanto ainda está desambiguando");
+    assert.equal(body1.tipoResposta, "opcoes");
+    assert.deepEqual(new Set(body1.opcoes), new Set(["pessoa-presa", "violencia-domestica"]));
+
+    // resposta de desambiguação escolhe/reduz pra 1 candidato só
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = ID_PESSOA_PRESA;
+    const r2 = await app.inject({
+      method: "POST",
+      url: BASE,
+      payload: { chatId, resposta: "pessoa-presa" },
+      headers: AUTH,
+    });
+    const body2 = r2.json();
+    assert.equal(r2.statusCode, 200);
+    assert.equal(body2.flowId, ID_PESSOA_PRESA);
+    assert.equal(body2.status, "em_andamento", "agora é o fluxo real perguntando, não mais desambiguação");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
+    process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
+  }
+});
+
+// Esgota o limite de rodadas de desambiguação (3) sem convergir pra 1 só →
+// cai em handoff_humano em vez de perguntar pra sempre.
+test("ambiguidade que nunca resolve → esgota limite de rodadas → handoff_humano", async () => {
+  const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
+  const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
+  process.env.MOCK_CLASSIFICACAO_FLOWIDS = `${ID_PESSOA_PRESA},${ID_VIOLENCIA_DOMESTICA}`;
+  delete process.env.MOCK_CLASSIFICACAO_FLOWID;
+  try {
+    const app = await montarApp();
+    const chatId = novoChatId();
+
+    let res = await app.inject({ method: "POST", url: BASE, payload: { chatId, mensagem: "relato sempre ambíguo" }, headers: AUTH });
+    assert.equal(res.json().status, "em_andamento", "pergunta 1");
+
+    res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
+    assert.equal(res.json().status, "em_andamento", "pergunta 2");
+
+    res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
+    assert.equal(res.json().status, "em_andamento", "pergunta 3");
+
+    res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
+    const body = res.json();
+    assert.equal(body.status, "handoff_humano", "esgotou as 3 rodadas, ainda ambíguo → desiste");
+    assert.equal(body.motivoHandoff, "nao_identificado");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
+    process.env.MOCK_CLASSIFICACAO_FLOWID = originalSingular;
   }
 });

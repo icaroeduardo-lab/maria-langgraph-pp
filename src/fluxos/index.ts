@@ -1,5 +1,5 @@
 import type { GrafoAtendimento } from "../rotas/atendimentos.js";
-import { fluxosPlanejados, textoParaClassificacao, type FluxoPlanejado } from "./catalogo.js";
+import { fluxosPlanejados, textoParaClassificacao } from "./catalogo.js";
 import { grafo as grafoPessoaPresa } from "./pessoaPresa/graph.js";
 import {
   metadadosSchemaPessoaPresa,
@@ -109,8 +109,4 @@ export function catalogoParaClassificacao(): Array<{ id: string; nome: string; d
   const implementados = Object.entries(fluxosPorId).map(([id, cfg]) => ({ id, nome: cfg.nome, descricao: cfg.descricao }));
   const planejados = fluxosPlanejados.map((f) => ({ id: f.id, nome: f.nome, descricao: textoParaClassificacao(f) }));
   return [...implementados, ...planejados];
-}
-
-export function buscarFluxoPlanejado(fluxoId: string): FluxoPlanejado | undefined {
-  return fluxosPlanejados.find((f) => f.id === fluxoId);
 }
