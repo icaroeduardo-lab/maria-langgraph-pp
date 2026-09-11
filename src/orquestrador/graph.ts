@@ -33,10 +33,12 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   // simplesmente não estar lá, quebrando o teste por sorte de hash.
   const catalogoCompleto = await catalogoParaClassificacao();
   const pool: CandidatoOrquestrador[] = state.candidatosRestantes ?? (await buscarCandidatos(state.mensagem, CANDIDATOS_MAXIMOS, catalogoCompleto));
-  const { ids } = await classificarFluxosPlausiveis(state.mensagem, pool);
+  const { ids, tokensTotal } = await classificarFluxosPlausiveis(state.mensagem, pool);
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));
   const plausiveis = ids.map((id) => porId.get(id)).filter((c): c is CandidatoOrquestrador => c !== undefined);
-  return { candidatosRestantes: plausiveis };
+  // Sempre 1º nó da rodada — sobrescreve (não soma) de propósito, é o
+  // início da contagem desta rodada (issue #34).
+  return { candidatosRestantes: plausiveis, tokensGastosRodada: tokensTotal };
 }
 
 // Esgotar o limite de rodadas com >1 candidato ainda ambíguo vira "nenhum"
@@ -87,12 +89,22 @@ async function buscarPerguntaRealCompartilhada(candidatos: CandidatoOrquestrador
   return todasIguais ? primeira.textoPergunta : undefined;
 }
 
+// undefined + undefined = undefined (nenhuma chamada real aconteceu, não é
+// "custou 0" — é "não sei") — só soma de verdade quando pelo menos 1 dos 2
+// lados teve chamada de IA de fato (issue #34).
+function somarTokens(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
 async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Promise<Partial<OrquestradorStateType>> {
   const candidatos = state.candidatosRestantes ?? [];
   const perguntaDoBanco = await buscarPerguntaRealCompartilhada(candidatos);
+  // Match no banco não gasta token nenhum (não chama IA) — tokensGastosRodada
+  // não entra no retorno, mantém o que "classificar" já escreveu.
   if (perguntaDoBanco) return { perguntaAtualTexto: perguntaDoBanco };
-  const { pergunta } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
-  return { perguntaAtualTexto: pergunta };
+  const { pergunta, tokensTotal } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
+  return { perguntaAtualTexto: pergunta, tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal) };
 }
 
 // tipo "texto" (não "opcoes") de propósito — decisão 2026-09-11: mostrar os

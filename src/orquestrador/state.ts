@@ -20,4 +20,10 @@ export const OrquestradorState = Annotation.Root({
   flowIdEscolhido: Annotation<string | undefined>,
   statusFinal: Annotation<"identificado" | "nao_identificado" | undefined>,
   perguntaAtualTexto: Annotation<string | undefined>,
+  // Tokens gastos com IA NESTA rodada (leg entre 2 pausas do grafo) — não é
+  // acumulado entre rodadas (isso é escopo da issue #35, total por chat).
+  // `classificar` sempre roda 1x por rodada e escreve aqui primeiro;
+  // `prepararPerguntaDesambiguacao`, quando roda na mesma rodada, SOMA em
+  // cima em vez de sobrescrever (issue #34).
+  tokensGastosRodada: Annotation<number | undefined>,
 });
