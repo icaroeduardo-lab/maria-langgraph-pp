@@ -15,8 +15,12 @@ const CANDIDATOS_MAXIMOS = 10;
 
 // Quantas rodadas de desambiguação no máximo antes de desistir e cair pra
 // "não identificado" (handoff_humano) — evita loop infinito se o relato
-// continuar ambíguo mesmo depois de perguntar.
-const LIMITE_RODADAS = 3;
+// continuar ambíguo mesmo depois de perguntar. Subido de 3 pra 5 (issue
+// #43, 2026-09-14) — com 76 categorias no catálogo (vs. 2 quando 3 foi
+// escolhido, issue #28), relatos ambíguos entre categorias parecidas
+// levam mais idas e vindas pra convergir; achado ao vivo um caso real
+// batendo exatamente no limite de 3.
+const LIMITE_RODADAS = 5;
 
 // 1ª rodada: busca no catálogo completo (retrieval, issue #8) e classifica.
 // Rodadas seguintes: classifica de novo, mas só DENTRO do que já sobrou —

@@ -310,8 +310,8 @@ test("desambiguação com só 1 dos 2 candidatos tendo pergunta no banco → cai
   }
 });
 
-// Esgota o limite de rodadas de desambiguação (3) sem convergir pra 1 só →
-// cai em handoff_humano em vez de perguntar pra sempre.
+// Esgota o limite de rodadas de desambiguação (5, issue #43) sem convergir
+// pra 1 só → cai em handoff_humano em vez de perguntar pra sempre.
 test("ambiguidade que nunca resolve → esgota limite de rodadas → handoff_humano", async () => {
   const original = process.env.MOCK_CLASSIFICACAO_FLOWIDS;
   const originalSingular = process.env.MOCK_CLASSIFICACAO_FLOWID;
@@ -331,8 +331,14 @@ test("ambiguidade que nunca resolve → esgota limite de rodadas → handoff_hum
     assert.equal(res.json().status, "em_andamento", "pergunta 3");
 
     res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
+    assert.equal(res.json().status, "em_andamento", "pergunta 4");
+
+    res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
+    assert.equal(res.json().status, "em_andamento", "pergunta 5");
+
+    res = await app.inject({ method: "POST", url: BASE, payload: { chatId, resposta: "não esclarece" }, headers: AUTH });
     const body = res.json();
-    assert.equal(body.status, "handoff_humano", "esgotou as 3 rodadas, ainda ambíguo → desiste");
+    assert.equal(body.status, "handoff_humano", "esgotou as 5 rodadas, ainda ambíguo → desiste");
     assert.equal(body.motivoHandoff, "nao_identificado");
   } finally {
     process.env.MOCK_CLASSIFICACAO_FLOWIDS = original;
