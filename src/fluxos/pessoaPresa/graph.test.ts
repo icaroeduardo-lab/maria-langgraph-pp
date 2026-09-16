@@ -117,6 +117,43 @@ test("fluxo completo: COM processo, nome confirmado → concluido (comportamento
   assert.equal(final.motivoHandoff, undefined);
 });
 
+// Issue #51 — mesma lógica da #49, agora pro caminho COM processo: só
+// origem SEEU é considerada "resolvida" pelo bot. Sentinela de teste
+// "0000000-00.0000.0.00.0000" simula origem não suportada (ver
+// integracoes/verde.ts::consultarProcesso).
+test("fluxo completo: COM processo de origem NÃO suportada → handoff_humano (issue #51)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "true" }), config); // → pergunta número do processo
+  await grafo.invoke(new Command({ resume: "0000000-00.0000.0.00.0000" }), config); // origem não suportada (sentinela)
+  const rApenado = await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  assert.match(pergunta(rApenado)?.pergunta ?? "", /Confirma que a pessoa presa é/);
+
+  const rConfirma = await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  assert.match(pergunta(rConfirma)?.pergunta ?? "", /parentesco/);
+
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string; mensagemFinal?: string };
+  assert.equal(final.statusFinal, "handoff_humano", "origem diferente de SEEU não deveria ser marcada como concluido");
+  assert.equal(final.motivoHandoff, "origem_processo_nao_suportada");
+  assert.match(final.mensagemFinal ?? "", /origem/i);
+});
+
+// Processo não encontrado na consulta (sem origem nenhuma) cai no MESMO
+// handoff de origem não suportada — sentinela "000000000" simula isso.
+test("fluxo completo: processo NÃO ENCONTRADO na consulta → handoff_humano, mesmo motivo de origem não suportada", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "true" }), config); // → pergunta número do processo
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // processo não encontrado (sentinela)
+  await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "handoff_humano");
+  assert.equal(final.motivoHandoff, "origem_processo_nao_suportada");
+});
+
 test("confirmação de nome com 'Sim' literal → concluido (cenário exato do bug real: WhatsApp/Tykhe manda 'Sim', não 'true')", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);

@@ -6,7 +6,9 @@ import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } fr
 import { prepararPergunta } from "../../ia/reescrever.js";
 import { extrairCamposLivre } from "../../ia/extrair.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
-import { MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO } from "./api.js";
+import { MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO, MENSAGEM_HANDOFF_ORIGEM_NAO_SUPORTADA } from "./api.js";
+
+const ORIGEM_PROCESSO_SUPORTADA = "SEEU";
 
 // Guard da extração livre — desligada por padrão, liga só com a env var
 // explícita. Esse guard decide se o grafo ENTRA no ramo de extração no
@@ -245,9 +247,18 @@ export async function pedirParentesco(state: PessoaPresaStateType): Promise<Part
 // parentesco mas não tem como confirmar/acompanhar a situação processual de
 // verdade. Marcar como "concluido" nesse caso passava a impressão de que
 // resolveu o que a pessoa precisava; vira handoff_humano em vez disso.
+//
+// Issue #51 — mesma ideia, mas pro caso COM número do processo: só origem
+// SEEU é considerada "resolvida" pelo bot. Processo não encontrado na
+// consulta (dadosProcesso.origem ausente) cai no mesmo handoff — comparação
+// exata contra ORIGEM_PROCESSO_SUPORTADA cobre os 2 casos (origem diferente
+// e origem ausente) sem precisar de checagem separada.
 async function concluir(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   if (state.temProcesso === false) {
     return { statusFinal: "handoff_humano", motivoHandoff: "sem_numero_processo", mensagemFinal: MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO };
+  }
+  if (state.dadosProcesso?.origem !== ORIGEM_PROCESSO_SUPORTADA) {
+    return { statusFinal: "handoff_humano", motivoHandoff: "origem_processo_nao_suportada", mensagemFinal: MENSAGEM_HANDOFF_ORIGEM_NAO_SUPORTADA };
   }
   return { statusFinal: "concluido" };
 }

@@ -17,10 +17,13 @@ export const PessoaPresaState = Annotation.Root({
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
   // só preenchido quando statusFinal:"handoff_humano" — os caminhos que
   // levam pro mesmo nó naoConfirmado (nome não confirmado / RG esgotou as 3
-  // tentativas) hoje caem indistinguíveis, e o desfecho sem número de
-  // processo (issue #49) é um 3º motivo; isso dá pro atendente/Tykhe saber
-  // o motivo sem adivinhar.
-  motivoHandoff: Annotation<"nome_nao_confirmado" | "rg_nao_encontrado" | "sem_numero_processo" | undefined>,
+  // tentativas) hoje caem indistinguíveis, e os desfechos sem número de
+  // processo (issue #49) e com origem de processo não suportada (issue #51)
+  // são motivos à parte; isso dá pro atendente/Tykhe saber o motivo sem
+  // adivinhar.
+  motivoHandoff: Annotation<
+    "nome_nao_confirmado" | "rg_nao_encontrado" | "sem_numero_processo" | "origem_processo_nao_suportada" | undefined
+  >,
   // texto final específico do desfecho — sobrescreve o texto genérico
   // fluxo.mensagemConcluido/mensagemHandoff (ver
   // rotas/atendimentos.ts::montarRespostaAtendimento), mesmo padrão de
