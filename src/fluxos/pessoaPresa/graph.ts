@@ -5,6 +5,7 @@ import type { Pergunta } from "../../shared/types.js";
 import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
 import { extrairCamposLivre } from "../../ia/extrair.js";
+import { classificarEntreOpcoes } from "../../ia/classificar.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
 import { MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO, MENSAGEM_HANDOFF_ORIGEM_NAO_SUPORTADA } from "./api.js";
 
@@ -283,13 +284,49 @@ async function prepararPerguntaParentesco(state: PessoaPresaStateType): Promise<
   return prepararPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
 }
 
+// Issue #17 — lista fechada de parentescos, validada com o negócio.
+const PARENTESCOS_PERMITIDOS = [
+  "Mãe",
+  "Pai",
+  "Irmão(a)",
+  "Esposo(a)",
+  "Ex-esposo(a)",
+  "Companheiro(a)",
+  "Filho(a)",
+  "Amigo(a)",
+  "Primo(a)",
+  "Tio(a)",
+  "Sobrinho(a)",
+  "Avô/Avó",
+  "Cunhado(a)",
+  "Sogro(a)",
+  "Outro",
+];
+
+// Classifica o relato livre contra a lista fechada acima — mesmo módulo
+// reaproveitável do orquestrador (issue #8/#17). Sem match com confiança
+// suficiente, cai em "Outro" (nunca guarda o texto cru em metadados.parentesco).
+// Guard de teste próprio (mesmo padrão de ia/classificarFluxos.ts) — ia/classificar.ts
+// não tem guard embutido, cada chamador cuida do próprio mock.
+async function classificarParentesco(respostaLivre: string): Promise<string> {
+  if (process.env.NODE_ENV === "test") {
+    return process.env.MOCK_CLASSIFICACAO_PARENTESCO ?? "Outro";
+  }
+  const sistema = `Você classifica o parentesco de quem busca informação sobre uma pessoa presa, na Defensoria Pública do RJ, a partir de um relato livre.
+Parentescos possíveis: ${PARENTESCOS_PERMITIDOS.join(", ")}.
+Regras: escolha o que melhor descreve a relação, mesmo que o relato seja indireto (ex: "fui casada com ele mas já nos divorciamos" → "Ex-esposo(a)"). Se não bater com confiança em nenhum, responda "nenhum".`;
+  const { escolhaId } = await classificarEntreOpcoes(respostaLivre, sistema, PARENTESCOS_PERMITIDOS);
+  return escolhaId ?? "Outro";
+}
+
 export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   if (state.parentesco !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({
     pergunta: state.perguntaAtualTexto ?? "Qual seu parentesco com a pessoa presa?",
     tipo: "texto",
   });
-  return { parentesco: resposta };
+  const parentesco = await classificarParentesco(resposta);
+  return { parentesco };
 }
 
 // Issue #49 — sem o número do processo, o atendimento coletou RG/nome/
