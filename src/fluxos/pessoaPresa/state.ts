@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import type { DadosApenado, DadosProcesso } from "../../shared/types.js";
+import { AnnotationTokensAcumulados } from "../../shared/tokensAcumulados.js";
 
 export type PessoaPresaStateType = typeof PessoaPresaState.State;
 
@@ -14,11 +15,22 @@ export const PessoaPresaState = Annotation.Root({
   querTentarNovamente: Annotation<boolean | undefined>,
   confirmaNome: Annotation<boolean | undefined>,
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
-  // só preenchido quando statusFinal:"handoff_humano" — os 2 caminhos que
+  // só preenchido quando statusFinal:"handoff_humano" — os caminhos que
   // levam pro mesmo nó naoConfirmado (nome não confirmado / RG esgotou as 3
-  // tentativas) hoje caem indistinguíveis; isso dá pro atendente/Tykhe saber
-  // o motivo sem adivinhar.
-  motivoHandoff: Annotation<"nome_nao_confirmado" | "rg_nao_encontrado" | undefined>,
+  // tentativas) hoje caem indistinguíveis, e os desfechos sem número de
+  // processo (issue #49) e com origem de processo não suportada (issue #51)
+  // são motivos à parte; isso dá pro atendente/Tykhe saber o motivo sem
+  // adivinhar.
+  motivoHandoff: Annotation<
+    "nome_nao_confirmado" | "rg_nao_encontrado" | "sem_numero_processo" | "origem_processo_nao_suportada" | undefined
+  >,
+  // texto final específico do desfecho — sobrescreve o texto genérico
+  // fluxo.mensagemConcluido/mensagemHandoff (ver
+  // rotas/atendimentos.ts::montarRespostaAtendimento), mesmo padrão de
+  // fluxos/violenciaDomestica/state.ts. Só o desfecho "sem número de
+  // processo" (issue #49) usa isso hoje — os demais continuam com o texto
+  // genérico (comportamento inalterado).
+  mensagemFinal: Annotation<string | undefined>,
   // texto já reescrito pela IA da PRÓXIMA pergunta a pausar, gerado 1x num nó
   // "preparar" SEPARADO logo antes do nó que pausa em interrupt() — ver
   // prepararPergunta() em ia/reescrever.ts pra saber por que não dá pra
@@ -31,4 +43,7 @@ export const PessoaPresaState = Annotation.Root({
   // texto fixo original (ver ia/reescrever.ts) — log estruturado usa isso.
   perguntaAtualViaIA: Annotation<boolean | undefined>,
   perguntaAtualTokensTotal: Annotation<number | undefined>,
+  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35) — ver
+  // shared/tokensAcumulados.ts.
+  tokensGastosTotal: AnnotationTokensAcumulados(),
 });

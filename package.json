@@ -13,6 +13,8 @@
     "test": "cross-env NODE_ENV=test API_KEY=teste-fixo-chave node --import tsx --test \"test/**/*.test.ts\" \"src/**/*.test.ts\"",
     "test:integracao": "node --import tsx --test test-integracao/*.test.ts",
     "studio": "npx @langchain/langgraph-cli dev",
+    "seed:fluxos-planejados": "tsx scripts/seedFluxosPlanejados.ts",
+    "coletar:arvore-perguntas-verde": "tsx scripts/coletarArvorePerguntasVerde.ts",
     "logs:prod": "sh scripts/logs-prod.sh"
   },
   "dependencies": {

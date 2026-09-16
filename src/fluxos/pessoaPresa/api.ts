@@ -63,7 +63,10 @@ export const metadadosSchemaPessoaPresa = {
         regime: { type: "string" },
       },
     },
-    motivoHandoff: { type: "string", enum: ["nome_nao_confirmado", "rg_nao_encontrado"] },
+    motivoHandoff: {
+      type: "string",
+      enum: ["nome_nao_confirmado", "rg_nao_encontrado", "sem_numero_processo", "origem_processo_nao_suportada"],
+    },
   },
 } as const;
 
@@ -102,3 +105,14 @@ export const MENSAGEM_CONCLUIDO =
   "Show! Já confirmei os dados da pessoa presa. Vou seguir com o encaminhamento a partir daqui.";
 export const MENSAGEM_HANDOFF =
   "Não consegui confirmar os dados da pessoa presa. Vou encaminhar seu atendimento pra equipe verificar com mais calma.";
+// Issue #49 — diferente do MENSAGEM_HANDOFF genérico acima (que soa como
+// "não consegui confirmar"), aqui os dados FORAM confirmados (RG, nome,
+// parentesco) — só falta o número do processo, que só um atendente
+// consegue levantar. Setado como mensagemFinal (não usa o texto genérico).
+export const MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO =
+  "Já confirmei os dados da pessoa presa, mas como você não tem o número do processo, vou encaminhar seu atendimento pra equipe localizar isso e dar continuidade.";
+// Issue #51 — só processo com origem SEEU é considerado "resolvido" pelo
+// bot; origem diferente (ou processo não encontrado na consulta, sem
+// origem nenhuma) vira handoff, mesmo com os outros dados confirmados.
+export const MENSAGEM_HANDOFF_ORIGEM_NAO_SUPORTADA =
+  "Já confirmei os dados da pessoa presa, mas o processo informado tem uma origem que ainda não consigo tratar por aqui. Vou encaminhar seu atendimento pra equipe dar continuidade.";

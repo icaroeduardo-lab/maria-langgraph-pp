@@ -74,7 +74,11 @@ test("resume com 'false' não quebra (regressão do bug de Command({resume:false
   await assert.doesNotReject(() => grafo.invoke(new Command({ resume: "false" }), config));
 });
 
-test("fluxo completo: sem processo, nome confirmado → concluido, parentesco é a última pergunta", async () => {
+// Issue #49 — sem número do processo, os dados são coletados/confirmados
+// normalmente (RG, nome, parentesco), mas o desfecho vira handoff_humano em
+// vez de concluido: falta o processo pra confirmar/acompanhar de verdade,
+// só um atendente resolve isso.
+test("fluxo completo: SEM processo, nome confirmado → handoff_humano (issue #49), não concluido", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config); // tem processo?
   await grafo.invoke(new Command({ resume: "false" }), config); // → RG direto
@@ -88,7 +92,66 @@ test("fluxo completo: sem processo, nome confirmado → concluido, parentesco é
 
   const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
   assert.equal(pergunta(rFinal), undefined, "não deve ter pergunta pendente no fim");
-  assert.equal((rFinal as { statusFinal?: string }).statusFinal, "concluido");
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string; mensagemFinal?: string };
+  assert.equal(final.statusFinal, "handoff_humano", "sem número do processo não deveria ser marcado como concluido");
+  assert.equal(final.motivoHandoff, "sem_numero_processo");
+  assert.match(final.mensagemFinal ?? "", /número do processo/i);
+});
+
+// Regressão: COM número do processo, o desfecho continua concluido — só o
+// caso sem processo (acima) mudou.
+test("fluxo completo: COM processo, nome confirmado → concluido (comportamento inalterado)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "true" }), config); // → pergunta número do processo
+  await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // número do processo
+  const rApenado = await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  assert.match(pergunta(rApenado)?.pergunta ?? "", /Confirma que a pessoa presa é/);
+
+  const rConfirma = await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  assert.match(pergunta(rConfirma)?.pergunta ?? "", /parentesco/);
+
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "concluido");
+  assert.equal(final.motivoHandoff, undefined);
+});
+
+// Issue #51 — mesma lógica da #49, agora pro caminho COM processo: só
+// origem SEEU é considerada "resolvida" pelo bot. Sentinela de teste
+// "0000000-00.0000.0.00.0000" simula origem não suportada (ver
+// integracoes/verde.ts::consultarProcesso).
+test("fluxo completo: COM processo de origem NÃO suportada → handoff_humano (issue #51)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "true" }), config); // → pergunta número do processo
+  await grafo.invoke(new Command({ resume: "0000000-00.0000.0.00.0000" }), config); // origem não suportada (sentinela)
+  const rApenado = await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  assert.match(pergunta(rApenado)?.pergunta ?? "", /Confirma que a pessoa presa é/);
+
+  const rConfirma = await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  assert.match(pergunta(rConfirma)?.pergunta ?? "", /parentesco/);
+
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string; mensagemFinal?: string };
+  assert.equal(final.statusFinal, "handoff_humano", "origem diferente de SEEU não deveria ser marcada como concluido");
+  assert.equal(final.motivoHandoff, "origem_processo_nao_suportada");
+  assert.match(final.mensagemFinal ?? "", /origem/i);
+});
+
+// Processo não encontrado na consulta (sem origem nenhuma) cai no MESMO
+// handoff de origem não suportada — sentinela "000000000" simula isso.
+test("fluxo completo: processo NÃO ENCONTRADO na consulta → handoff_humano, mesmo motivo de origem não suportada", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "true" }), config); // → pergunta número do processo
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // processo não encontrado (sentinela)
+  await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "handoff_humano");
+  assert.equal(final.motivoHandoff, "origem_processo_nao_suportada");
 });
 
 test("confirmação de nome com 'Sim' literal → concluido (cenário exato do bug real: WhatsApp/Tykhe manda 'Sim', não 'true')", async () => {

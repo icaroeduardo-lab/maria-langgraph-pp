@@ -107,7 +107,18 @@ interface ProcessoResponseVerde {
 export async function consultarProcesso(numero: string): Promise<DadosProcesso> {
   if (!VERDE_JWT_TOKEN) {
     logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
-    return { encontrado: true, id: 999999, origem: "e-Proc (mock)", nomeAssunto: "Processo de Teste" };
+    // Sentinelas de teste (issue #51 — só SEEU é resolvido pelo bot
+    // sozinho): número "000000000" simula processo NÃO ENCONTRADO (sem
+    // origem nenhuma); "0000000-00.0000.0.00.0000" simula origem NÃO
+    // suportada; qualquer outro número "acha" um processo com origem SEEU.
+    // origem precisa ser o valor EXATO "SEEU" (sem sufixo "(mock)") porque
+    // `concluir()` compara por igualdade estrita contra o que o Verde real
+    // devolve.
+    if (numero === "000000000") return { encontrado: false };
+    if (numero === "0000000-00.0000.0.00.0000") {
+      return { encontrado: true, id: 999999, origem: "e-Proc (mock)", nomeAssunto: "Processo de Teste (mock)" };
+    }
+    return { encontrado: true, id: 999999, origem: "SEEU", nomeAssunto: "Processo de Teste (mock)" };
   }
   try {
     const res = await fetch(`${VERDE_API_URL}/processo/consultar/${encodeURIComponent(numero)}`, {

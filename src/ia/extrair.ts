@@ -1,4 +1,5 @@
 import { ChatBedrockConverse } from "@langchain/aws";
+import { AIMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { logger } from "../shared/logger.js";
 import { contextoAtual } from "../shared/contexto.js";
@@ -28,6 +29,10 @@ export interface CamposExtraidos {
   rg?: string;
   parentesco?: string;
   viaIA: boolean;
+  // ausente quando viaIA:false (não teve chamada de verdade, não gastou nada).
+  tokensEntrada?: number;
+  tokensSaida?: number;
+  tokensTotal?: number;
 }
 
 // Mesmo padrão de guard de ia/reescrever.ts::reescreverPergunta — defesa em
@@ -41,12 +46,21 @@ export async function extrairCamposLivre(texto: string): Promise<CamposExtraidos
     return { viaIA: false };
   }
   try {
-    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaExtracao);
+    // includeRaw:true devolve { raw, parsed } em vez de só o objeto
+    // parseado — raw é a AIMessage crua, com usage_metadata (issue #34).
+    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaExtracao, { includeRaw: true });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: SISTEMA },
       { role: "user", content: texto },
     ]);
-    return { ...resultado, viaIA: true };
+    const uso = resultado.raw instanceof AIMessage ? resultado.raw.usage_metadata : undefined;
+    return {
+      ...resultado.parsed,
+      viaIA: true,
+      tokensEntrada: uso?.input_tokens,
+      tokensSaida: uso?.output_tokens,
+      tokensTotal: uso?.total_tokens,
+    };
   } catch (err) {
     logger.error({ ...contextoAtual(), err }, "[extrair] falha ao extrair campos, seguindo sem nada extraído");
     return { viaIA: false };

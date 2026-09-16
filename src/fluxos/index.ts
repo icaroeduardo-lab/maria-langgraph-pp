@@ -1,5 +1,5 @@
 import type { GrafoAtendimento } from "../rotas/atendimentos.js";
-import { fluxosPlanejados, type FluxoPlanejado } from "./catalogo.js";
+import { listarFluxosPlanejados, buscarFluxoPlanejadoPorId, textoParaClassificacao } from "../shared/fluxosPlanejadosDb.js";
 import { grafo as grafoPessoaPresa } from "./pessoaPresa/graph.js";
 import {
   metadadosSchemaPessoaPresa,
@@ -14,6 +14,8 @@ import {
   MENSAGEM_CONCLUIDO as MENSAGEM_CONCLUIDO_VD,
   MENSAGEM_HANDOFF as MENSAGEM_HANDOFF_VD,
 } from "./violenciaDomestica/api.js";
+import { grafo as grafoPadrao } from "./padrao/graph.js";
+import { metadadosSchemaPadrao, extrairMetadadosPadrao, MENSAGEM_CONCLUIDO as MENSAGEM_CONCLUIDO_PADRAO, MENSAGEM_HANDOFF as MENSAGEM_HANDOFF_PADRAO } from "./padrao/api.js";
 
 export interface FluxoConfig {
   nome: string;
@@ -28,6 +30,13 @@ export interface FluxoConfig {
   extrairMetadados: (values: Record<string, unknown>) => object;
   mensagemConcluido: string;
   mensagemHandoff: string;
+  // idCategoriaAssunto do Verde (GET /integra/assunto/categorias) que
+  // corresponde a este fluxo, quando existe um — ver issue #19. Ausente
+  // quando não há categoria do Verde equivalente (ex: pessoa presa não tem
+  // categoria própria no Verde). Usado só pra evitar duplicar esse fluxo em
+  // tabela fluxos_planejados (issue #26) quando o catálogo do Verde for
+  // carregado — não afeta classificação nem é exposto pro usuário.
+  idCategoriaAssuntoVerde?: number;
 }
 
 // Id fixo por fluxo — hoje hardcoded aqui (sem banco ainda), mas já no
@@ -57,24 +66,49 @@ export const fluxosPorId: Record<string, FluxoConfig> = {
     extrairMetadados: extrairMetadadosViolenciaDomestica,
     mensagemConcluido: MENSAGEM_CONCLUIDO_VD,
     mensagemHandoff: MENSAGEM_HANDOFF_VD,
+    // idCategoriaAssunto real do Verde (GET /assunto/categorias, confirmado
+    // ao vivo 2026-09-10) — ver issue #19.
+    idCategoriaAssuntoVerde: 10113,
   },
 };
 
-export function buscarFluxo(fluxoId: string): FluxoConfig | undefined {
-  return fluxosPorId[fluxoId];
+// Grafo compartilhado por QUALQUER fluxo planejado (tabela fluxos_planejados) que
+// ainda não tem implementação própria — ver issue #21. 1 nó, conclui na
+// hora com mensagem fixa. Instância única (não 1 por categoria) — múltiplos
+// flowId diferentes apontam pra este MESMO FluxoConfig sem misturar estado
+// entre conversas (isolamento é por chatId/thread_id, ver padrao/graph.ts).
+const FLUXO_PADRAO: FluxoConfig = {
+  nome: "padrao-em-construcao",
+  descricao: "", // nunca entra em catalogoParaClassificacao — não é uma opção que a IA escolhe por si, só o fallback de um planejado já escolhido.
+  grafo: grafoPadrao as unknown as GrafoAtendimento,
+  metadadosSchema: metadadosSchemaPadrao,
+  extrairMetadados: extrairMetadadosPadrao,
+  mensagemConcluido: MENSAGEM_CONCLUIDO_PADRAO,
+  mensagemHandoff: MENSAGEM_HANDOFF_PADRAO,
+};
+
+// Resolve um flowId pro FluxoConfig que sabe rodar ele: implementado de
+// verdade (fluxosPorId) tem prioridade; se não achar mas o id existe na
+// tabela fluxos_planejados (issue #26), cai no grafo padrão (issue #21) em
+// vez de undefined. undefined só deveria acontecer se
+// catalogoParaClassificacao() (única fonte dos ids que a IA classifica)
+// ficar inconsistente com esses 2 catálogos.
+export async function buscarFluxo(fluxoId: string): Promise<FluxoConfig | undefined> {
+  const implementado = fluxosPorId[fluxoId];
+  if (implementado) return implementado;
+  const planejado = await buscarFluxoPlanejadoPorId(fluxoId);
+  return planejado ? FLUXO_PADRAO : undefined;
 }
 
-// Catálogo COMPLETO pra classificação (ia/classificarFluxo.ts, via
+// Catálogo COMPLETO pra classificação (ia/classificarFluxos.ts, via
 // rotas/orquestrador.ts) — implementados (fluxosPorId, com grafo de verdade)
-// + planejados (catalogo.ts, só descrição, sem código ainda). A IA pode
-// escolher um planejado; o orquestrador detecta que buscarFluxo() não acha
-// nada pra esse id e cai em handoff_humano, logando o id/nome pra medir
-// demanda de fluxo ainda não implementado.
-export function catalogoParaClassificacao(): Array<{ id: string; nome: string; descricao: string }> {
+// + planejados (tabela fluxos_planejados, issue #26). A IA pode escolher um
+// planejado; buscarFluxo() resolve pro grafo padrão nesse caso (issue #21),
+// não mais handoff especial. Planejados usam textoParaClassificacao() —
+// combina descricao + palavrasChave (issue #19) no texto que a IA/embedding
+// realmente lê.
+export async function catalogoParaClassificacao(): Promise<Array<{ id: string; nome: string; descricao: string }>> {
   const implementados = Object.entries(fluxosPorId).map(([id, cfg]) => ({ id, nome: cfg.nome, descricao: cfg.descricao }));
-  return [...implementados, ...fluxosPlanejados];
-}
-
-export function buscarFluxoPlanejado(fluxoId: string): FluxoPlanejado | undefined {
-  return fluxosPlanejados.find((f) => f.id === fluxoId);
+  const planejados = (await listarFluxosPlanejados()).map((f) => ({ id: f.id, nome: f.nome, descricao: textoParaClassificacao(f) }));
+  return [...implementados, ...planejados];
 }

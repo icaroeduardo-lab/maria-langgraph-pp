@@ -36,10 +36,20 @@ export interface RespostaAtendimento {
   flowId: string;
   metadados: object;
   dadosColetados: DadosColetados;
+  // Só presente quando status:concluido/handoff_humano (issue #35) — soma
+  // de TODOS os tokens de IA gastos nesta conversa (fluxos/*/state.ts,
+  // campo tokensGastosTotal com reducer de soma). 0 quando nenhuma chamada
+  // de IA rodou de verdade, nunca ausente/undefined nesse caso.
+  tokensGastosTotal?: number;
   _links: Links;
 }
 
-type ValoresAtendimento = Record<string, unknown> & { statusFinal?: string; mensagemFinal?: string; cpf?: string };
+type ValoresAtendimento = Record<string, unknown> & {
+  statusFinal?: string;
+  mensagemFinal?: string;
+  cpf?: string;
+  tokensGastosTotal?: number;
+};
 
 function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
   return {
@@ -71,7 +81,9 @@ function montarLinks(chatId: string, status: string): Links {
   return links;
 }
 
-function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
+// Exportado — orquestrador (src/orquestrador/graph.ts) também precisa
+// extrair o __interrupt__ do invoke(), mesmo mecanismo do LangGraph.
+export function extrairInterruptDoInvoke(resultado: unknown): InterruptValue | undefined {
   return (resultado as { __interrupt__?: Array<{ value: InterruptValue }> }).__interrupt__?.[0]?.value;
 }
 
@@ -113,6 +125,10 @@ const respostaAtendimentoSchema = {
       type: "object",
       properties: { cpf: { type: "string" } },
       description: "Dados cross-fluxo já coletados (ex: CPF) — útil pra chamar Verde direto sem re-perguntar",
+    },
+    tokensGastosTotal: {
+      type: "number",
+      description: "Soma de todos os tokens de IA gastos nesta conversa — só presente quando status:concluido/handoff_humano",
     },
     _links: linksSchema,
   },
@@ -171,6 +187,9 @@ function montarRespostaAtendimento(
     flowId: fluxoId,
     metadados,
     dadosColetados,
+    // 0 (não undefined) quando nenhuma chamada de IA rodou de verdade
+    // nesta conversa — issue #35.
+    tokensGastosTotal: values.tokensGastosTotal ?? 0,
     _links: montarLinks(chatId, status),
   };
 }
@@ -302,7 +321,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
 
       const fluxoId = body?.flowId;
       if (!fluxoId) return reply.code(400).send({ erro: "flowId obrigatório" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       const resultado = await criarAtendimento(fluxo, fluxoId, body?.chatId, body?.dadosConhecidos, req.log);
@@ -334,7 +353,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const store = await obterAtendimentosStore();
       const fluxoId = await store.buscarFlowId(chatId);
       if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
@@ -383,7 +402,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const store = await obterAtendimentosStore();
       const fluxoId = await store.buscarFlowId(chatId);
       if (!fluxoId) return reply.code(404).send({ erro: "atendimento não encontrado" });
-      const fluxo = buscarFluxo(fluxoId);
+      const fluxo = await buscarFluxo(fluxoId);
       if (!fluxo) return reply.code(404).send({ erro: "fluxo não encontrado — ver GET /fluxos" });
 
       // fluxoId vai junto no configurable — é isso que deixa contextoAtual()
