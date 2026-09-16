@@ -8,6 +8,16 @@ on:
   push:
     branches: [develop]
 
+# Issue #64 — 2 pushes próximos em develop disparavam 2 runs em paralelo,
+# cada um forçando novo deployment no MESMO serviço ECS ao mesmo tempo. O
+# mais antigo ficava esperando um estado que nunca se estabilizava (foi
+# atropelado pelo mais novo) e estourava o timeout de `aws ecs wait
+# services-stable` (falso-negativo — o código publicado estava correto).
+# cancel-in-progress:false enfileira (1 deploy por vez, sem cancelar nenhum).
+concurrency:
+  group: deploy-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   id-token: write # necessário pro OIDC (aws-actions/configure-aws-credentials)
   contents: read
