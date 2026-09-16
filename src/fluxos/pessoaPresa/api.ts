@@ -65,7 +65,13 @@ export const metadadosSchemaPessoaPresa = {
     },
     motivoHandoff: {
       type: "string",
-      enum: ["nome_nao_confirmado", "rg_nao_encontrado", "sem_numero_processo", "origem_processo_nao_suportada"],
+      enum: [
+        "nome_nao_confirmado",
+        "rg_nao_encontrado",
+        "sem_numero_processo",
+        "origem_processo_nao_suportada",
+        "dados_pessoa_nao_atendidos",
+      ],
     },
   },
 } as const;

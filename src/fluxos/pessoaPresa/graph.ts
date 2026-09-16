@@ -10,6 +10,46 @@ import { MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO, MENSAGEM_HANDOFF_ORIGEM_NAO_SUPOR
 
 const ORIGEM_PROCESSO_SUPORTADA = "SEEU";
 
+// Issue #57 — só um subconjunto de situação/tipo de preso/regime permite
+// considerar o atendimento resolvido pela Maria (ticket original do
+// sistema de origem, SIPEN). Valores SEM o prefixo "EM" — normalizarSituacao
+// remove esse prefixo antes de comparar.
+const SITUACOES_PERMITIDAS = new Set([
+  "ATIVO",
+  "RESDOM",
+  "TRABALHO EXTRAMURO",
+  "BAIXA HOSPITALAR",
+  "VPF",
+  "VPF/TRABALHO EXTRAMURO",
+  "VPF/ATIVIDADE EDUCACIONAL",
+  "ABERTO/DOMICÍLIO COVID-19",
+]);
+const TIPO_PRESO_PERMITIDO = "CONDENADO";
+const REGIMES_PERMITIDOS = new Set(["FECHADO", "SEMIABERTO"]);
+
+// Achado ao vivo (issue #57): o Verde é inconsistente no prefixo "EM" entre
+// valores de situação ("ATIVO" sem prefixo, "EM RESDOM" com prefixo) —
+// remove o token solto "EM " de cada parte (situações compostas usam "/",
+// ex: "Em VPF/Em Trabalho Extramuro") em vez de tentar acertar a grafia
+// exata de cada valor.
+function normalizarSituacao(situacao: string): string {
+  return situacao
+    .toUpperCase()
+    .split("/")
+    .map((parte) => parte.trim().replace(/^EM\s+/, ""))
+    .join("/");
+}
+
+function dadosApenadoAtendidos(state: PessoaPresaStateType): boolean {
+  const { situacao, tipoPreso, regime } = state.dadosApenado ?? {};
+  if (situacao === undefined || tipoPreso === undefined || regime === undefined) return false;
+  return (
+    SITUACOES_PERMITIDAS.has(normalizarSituacao(situacao)) &&
+    tipoPreso.toUpperCase() === TIPO_PRESO_PERMITIDO &&
+    REGIMES_PERMITIDOS.has(regime.toUpperCase())
+  );
+}
+
 // Guard da extração livre — desligada por padrão, liga só com a env var
 // explícita. Esse guard decide se o grafo ENTRA no ramo de extração no
 // START (roteamentoInicial); com ele false, comportamento idêntico a antes
@@ -268,6 +308,11 @@ async function concluir(state: PessoaPresaStateType): Promise<Partial<PessoaPres
   }
   if (state.dadosProcesso?.origem !== ORIGEM_PROCESSO_SUPORTADA) {
     return { statusFinal: "handoff_humano", motivoHandoff: "origem_processo_nao_suportada", mensagemFinal: MENSAGEM_HANDOFF_ORIGEM_NAO_SUPORTADA };
+  }
+  if (!dadosApenadoAtendidos(state)) {
+    // Sem mensagem fixa de propósito (decisão 2026-09-16) — só o status
+    // importa aqui, usa o texto genérico de handoff que o fluxo já tem.
+    return { statusFinal: "handoff_humano", motivoHandoff: "dados_pessoa_nao_atendidos" };
   }
   return { statusFinal: "concluido" };
 }

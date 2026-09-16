@@ -78,6 +78,6 @@ test("fluxo completo SEM processo: termina handoff_humano (issue #49), metadados
   // fluxos/pessoaPresa/api.ts::resumirDadosApenado/resumirDadosProcesso).
   assert.equal(body.metadados.dadosApenado.idPessoa, 999999, "achou a pessoa (idPessoa presente é o sinal, não tem mais `encontrado`)");
   assert.equal(body.metadados.dadosApenado.encontrado, undefined, "encontrado não deveria mais estar em metadados (só no state interno)");
-  assert.equal(body.metadados.dadosApenado.tipoPreso, "CONDENADO (mock)");
-  assert.equal(body.metadados.dadosApenado.regime, "SEMIABERTO (mock)");
+  assert.equal(body.metadados.dadosApenado.tipoPreso, "CONDENADO");
+  assert.equal(body.metadados.dadosApenado.regime, "SEMIABERTO");
 });
