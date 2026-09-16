@@ -27,6 +27,12 @@ export interface FluxoPlanejado {
   // descricao em textoParaClassificacao, ajudam a IA/embedding a bater com
   // o jeito coloquial que a pessoa relata.
   palavrasChave: string[];
+  // Issue #22 — algumas categorias são redirecionamento PERMANENTE (ex:
+  // reclamação trabalhista → "procure o sindicato"), não "em construção"
+  // (que dá a entender que um dia a Maria vai atender isso). Quando
+  // presente, o grafo padrão (fluxos/padrao/graph.ts) usa este texto como
+  // mensagem final em vez da genérica.
+  mensagemFixa?: string;
 }
 
 // Combina descricao + palavrasChave num texto só, pro que a IA de
@@ -86,28 +92,42 @@ function criarStorePostgres(url: string): FluxosPlanejadosStore {
         palavras_chave TEXT[] NOT NULL DEFAULT '{}'
       )
     `);
+    // Issue #22 — coluna nova numa tabela que já existe em produção
+    // (issue #26), por isso ALTER TABLE ADD COLUMN IF NOT EXISTS em vez de
+    // só declarar no CREATE TABLE (que só roda na 1ª vez).
+    await pool.query(`ALTER TABLE fluxos_planejados ADD COLUMN IF NOT EXISTS mensagem_fixa TEXT`);
     logger.info("[fluxosPlanejadosDb] tabela 'fluxos_planejados' pronta (Postgres)");
   })();
 
-  type Linha = { id: string; nome: string; descricao: string; id_categoria_assunto_verde: number; palavras_chave: string[] };
+  type Linha = {
+    id: string;
+    nome: string;
+    descricao: string;
+    id_categoria_assunto_verde: number;
+    palavras_chave: string[];
+    mensagem_fixa: string | null;
+  };
   const paraFluxo = (r: Linha): FluxoPlanejado => ({
     id: r.id,
     nome: r.nome,
     descricao: r.descricao,
     idCategoriaAssuntoVerde: r.id_categoria_assunto_verde,
     palavrasChave: r.palavras_chave,
+    mensagemFixa: r.mensagem_fixa ?? undefined,
   });
 
   return {
     async listar() {
       await prontoPromise;
-      const res = await pool.query<Linha>(`SELECT id, nome, descricao, id_categoria_assunto_verde, palavras_chave FROM fluxos_planejados ORDER BY id`);
+      const res = await pool.query<Linha>(
+        `SELECT id, nome, descricao, id_categoria_assunto_verde, palavras_chave, mensagem_fixa FROM fluxos_planejados ORDER BY id`
+      );
       return res.rows.map(paraFluxo);
     },
     async buscarPorId(id) {
       await prontoPromise;
       const res = await pool.query<Linha>(
-        `SELECT id, nome, descricao, id_categoria_assunto_verde, palavras_chave FROM fluxos_planejados WHERE id = $1`,
+        `SELECT id, nome, descricao, id_categoria_assunto_verde, palavras_chave, mensagem_fixa FROM fluxos_planejados WHERE id = $1`,
         [id]
       );
       return res.rows[0] ? paraFluxo(res.rows[0]) : undefined;
