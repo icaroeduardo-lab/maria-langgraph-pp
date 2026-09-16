@@ -65,13 +65,15 @@ test("fluxo completo SEM processo: termina handoff_humano (issue #49), metadados
   await responder("false"); // sem processo
   await responder("11111111111"); // RG
   await responder("true"); // confirma nome
+  process.env.MOCK_CLASSIFICACAO_PARENTESCO = "Amigo(a)"; // issue #17 — resposta livre classificada contra lista fechada
   const res = await responder("amigo"); // parentesco
+  delete process.env.MOCK_CLASSIFICACAO_PARENTESCO;
   const body = res.json();
 
   assert.equal(res.statusCode, 200);
   assert.equal(body.status, "handoff_humano");
   assert.equal(body.metadados.motivoHandoff, "sem_numero_processo");
-  assert.equal(body.metadados.parentesco, "amigo");
+  assert.equal(body.metadados.parentesco, "Amigo(a)");
   // dadosApenado/dadosProcesso em metadados são um RECORTE (decisão
   // 2026-09-09) — só os campos que a outra API vai consumir, sem o
   // `encontrado`/`movimentos`/etc que sobrava exposto sem necessidade (ver

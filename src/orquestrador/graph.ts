@@ -4,6 +4,7 @@ import type { Pergunta } from "../shared/types.js";
 import { buscarCandidatos } from "../shared/embeddingsFluxos.js";
 import { classificarFluxosPlausiveis } from "../ia/classificarFluxos.js";
 import { gerarPerguntaDesambiguacao } from "../ia/desambiguar.js";
+import { sumarizarRelato } from "../ia/sumarizar.js";
 import { criarCheckpointer } from "../shared/checkpointer.js";
 import { catalogoParaClassificacao } from "../fluxos/index.js";
 import { obterPerguntasStore, type PerguntaArvore } from "../shared/perguntasDb.js";
@@ -22,6 +23,21 @@ const CANDIDATOS_MAXIMOS = 10;
 // batendo exatamente no limite de 3.
 const LIMITE_RODADAS = 5;
 
+// Issue #47 — a partir desta rodada (inclusive), classificar/prepararPerguntaDesambiguacao
+// usam resumo + última resposta em vez do histórico bruto inteiro
+// (`mensagem`, que só cresce a cada rodada). Sugestão da própria issue.
+const LIMITE_RODADAS_SUMARIZACAO = 3;
+
+// Texto efetivo pra mandar pra classificação/desambiguação: enquanto não
+// sumarizou ainda (resumoRelato undefined), é o histórico bruto completo
+// (comportamento de sempre). Depois de sumarizar, é resumo (do que veio
+// ANTES) + última resposta (verbatim) — bem menor que o bruto acumulado,
+// sem perder o que acabou de ser dito.
+function textoParaClassificacao(state: OrquestradorStateType): string {
+  if (state.resumoRelato === undefined) return state.mensagem;
+  return `${state.resumoRelato}\n${state.ultimaResposta ?? ""}`;
+}
+
 // 1ª rodada: busca no catálogo completo (retrieval, issue #8) e classifica.
 // Rodadas seguintes: classifica de novo, mas só DENTRO do que já sobrou —
 // nunca alarga de volta pro catálogo todo.
@@ -37,7 +53,7 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   // simplesmente não estar lá, quebrando o teste por sorte de hash.
   const catalogoCompleto = await catalogoParaClassificacao();
   const pool: CandidatoOrquestrador[] = state.candidatosRestantes ?? (await buscarCandidatos(state.mensagem, CANDIDATOS_MAXIMOS, catalogoCompleto));
-  const { ids, tokensTotal } = await classificarFluxosPlausiveis(state.mensagem, pool);
+  const { ids, tokensTotal } = await classificarFluxosPlausiveis(textoParaClassificacao(state), pool);
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));
   const plausiveis = ids.map((id) => porId.get(id)).filter((c): c is CandidatoOrquestrador => c !== undefined);
   // Sempre 1º nó da rodada — sobrescreve (não soma) de propósito, é o
@@ -108,7 +124,7 @@ async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Prom
   // Match no banco não gasta token nenhum (não chama IA) — tokensGastosRodada
   // não entra no retorno, mantém o que "classificar" já escreveu.
   if (perguntaDoBanco) return { perguntaAtualTexto: perguntaDoBanco };
-  const { pergunta, tokensTotal } = await gerarPerguntaDesambiguacao(state.mensagem, candidatos);
+  const { pergunta, tokensTotal } = await gerarPerguntaDesambiguacao(textoParaClassificacao(state), candidatos);
   return {
     perguntaAtualTexto: pergunta,
     tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
@@ -126,9 +142,30 @@ async function pedirDesambiguacao(state: OrquestradorStateType): Promise<Partial
     pergunta: state.perguntaAtualTexto ?? "Pra te ajudar melhor, pode contar com mais detalhes o que você precisa?",
     tipo: "texto",
   });
+  const novaRodada = (state.rodada ?? 0) + 1;
   // candidatosRestantes NÃO é tocado aqui de propósito — próxima rodada de
   // "classificar" reaproveita o mesmo subconjunto, só com a mensagem maior.
-  return { mensagem: `${state.mensagem}\n${resposta}`, rodada: (state.rodada ?? 0) + 1 };
+  // mensagem bruto continua acumulando SEMPRE (registro/auditoria completo,
+  // issue #47) — quem decide o que vai pra classificação é textoParaClassificacao,
+  // não este campo. Código roda depois do interrupt() resolver, seguro
+  // chamar IA aqui (só o código ANTES do interrupt reexecuta em resume).
+  const mensagem = `${state.mensagem}\n${resposta}`;
+  if (novaRodada < LIMITE_RODADAS_SUMARIZACAO) {
+    return { mensagem, rodada: novaRodada };
+  }
+  // A partir do limite: sumariza tudo que veio ANTES desta resposta (resumo
+  // anterior + última resposta da rodada passada, ou o bruto se essa é a
+  // 1ª vez cruzando o limite) — a resposta ATUAL fica de fora do resumo,
+  // guardada verbatim em ultimaResposta.
+  const { resumo, tokensTotal } = await sumarizarRelato(textoParaClassificacao(state));
+  return {
+    mensagem,
+    resumoRelato: resumo,
+    ultimaResposta: resposta,
+    rodada: novaRodada,
+    tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
+    tokensGastosTotalConversa: tokensTotal ?? 0,
+  };
 }
 
 const grafo = new StateGraph(OrquestradorState)

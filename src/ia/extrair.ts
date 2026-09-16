@@ -12,6 +12,11 @@ const modelo = new ChatBedrockConverse({
   region: process.env.AWS_REGION ?? "us-east-1",
 });
 
+// Absorve instabilidade passageira do Bedrock (throttle, timeout de rede)
+// antes de cair no fallback genérico (issue #46) — poucas tentativas, não é
+// pra mascarar erro real, só evitar que 1 piscada vire fallback.
+const TENTATIVAS_RETRY_IA = 3;
+
 const SchemaExtracao = z.object({
   temProcesso: z.boolean().optional().describe("true se a pessoa mencionou ter processo, false se mencionou não ter, ausente se não falou nada sobre isso"),
   numeroProcesso: z.string().optional().describe("número do processo, só os dígitos/formato como foi informado, ausente se não mencionado"),
@@ -48,7 +53,7 @@ export async function extrairCamposLivre(texto: string): Promise<CamposExtraidos
   try {
     // includeRaw:true devolve { raw, parsed } em vez de só o objeto
     // parseado — raw é a AIMessage crua, com usage_metadata (issue #34).
-    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaExtracao, { includeRaw: true });
+    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaExtracao, { includeRaw: true }).withRetry({ stopAfterAttempt: TENTATIVAS_RETRY_IA });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: SISTEMA },
       { role: "user", content: texto },

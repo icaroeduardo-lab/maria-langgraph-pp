@@ -10,9 +10,20 @@ export interface CandidatoOrquestrador {
 }
 
 export const OrquestradorState = Annotation.Root({
-  // Relato acumulado — nas rodadas de desambiguação, a resposta da pessoa
-  // é concatenada aqui, dando mais contexto pra próxima classificação.
+  // Relato acumulado BRUTO — nas rodadas de desambiguação, a resposta da
+  // pessoa é concatenada aqui, sempre, mesmo depois de começar a sumarizar
+  // (issue #47) — serve de registro/auditoria completo, mas deixa de ser o
+  // texto usado pra classificar a partir de LIMITE_RODADAS_SUMARIZACAO (ver
+  // textoParaClassificacao em orquestrador/graph.ts).
   mensagem: Annotation<string>,
+  // Issue #47 — resumo do que já foi dito ATÉ a resposta mais recente
+  // (exclusive), gerado por IA quando o histórico cresce demais. undefined =
+  // ainda não sumarizou (rodadas iniciais usam `mensagem` bruto direto).
+  resumoRelato: Annotation<string | undefined>,
+  // Resposta mais recente, guardada separada do resumo — sempre enviada
+  // verbatim pra classificação/desambiguação (só o histórico ANTERIOR é
+  // comprimido, a última resposta nunca perde detalhe).
+  ultimaResposta: Annotation<string | undefined>,
   // undefined = ainda não fez retrieval nenhum (1ª rodada). Definido = já
   // filtrado por uma rodada de classificação anterior — próxima rodada
   // classifica DENTRO desse subconjunto, não busca no catálogo de novo.
