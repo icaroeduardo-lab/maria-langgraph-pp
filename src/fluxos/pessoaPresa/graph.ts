@@ -199,6 +199,11 @@ async function prepararPerguntaTentarNovamente(state: PessoaPresaStateType): Pro
   );
 }
 
+// Issue #54 — achado ao vivo (relato real via WhatsApp/Tykhe): a pessoa às
+// vezes pula a confirmação "quer tentar de novo?" e já manda o RG novo
+// direto. Reconhece isso pelo FORMATO (mesma validação de pedirRg, só
+// dígitos) — trata como "sim" e já usa o valor como RG, sem perguntar "qual
+// o RG?" de novo (depoisDePerguntaTentar pula direto pra consultarApenado).
 async function perguntaTentarNovamente(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
   const resposta = interrupt<Pergunta, string>({
     pergunta:
@@ -207,11 +212,15 @@ async function perguntaTentarNovamente(state: PessoaPresaStateType): Promise<Par
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { querTentarNovamente: respostaEhSim(resposta) };
+  if (rgFormatoValido(resposta)) {
+    return { querTentarNovamente: true, rg: resposta, digitouRgDireto: true };
+  }
+  return { querTentarNovamente: respostaEhSim(resposta), digitouRgDireto: false };
 }
 
-function depoisDePerguntaTentar(state: PessoaPresaStateType): "pedirRg" | "naoConfirmado" {
-  return state.querTentarNovamente ? "pedirRg" : "naoConfirmado";
+function depoisDePerguntaTentar(state: PessoaPresaStateType): "pedirRg" | "naoConfirmado" | "consultarApenado" {
+  if (!state.querTentarNovamente) return "naoConfirmado";
+  return state.digitouRgDireto ? "consultarApenado" : "pedirRg";
 }
 
 async function prepararPerguntaConfirmaNome(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
@@ -330,6 +339,9 @@ const grafo = new StateGraph(PessoaPresaState)
   .addConditionalEdges("perguntaTentarNovamente", depoisDePerguntaTentar, {
     pedirRg: "prepararPerguntaRg",
     naoConfirmado: "naoConfirmado",
+    // RG digitado direto na confirmação (issue #54) — pula prepararPerguntaRg
+    // (não pergunta "qual o RG?" de novo), vai direto pra consulta no Verde.
+    consultarApenado: "consultarApenado",
   })
   .addEdge("prepararPerguntaConfirmaNome", "pedirConfirmaNome")
   .addConditionalEdges("pedirConfirmaNome", depoisDeConfirmarNome, {

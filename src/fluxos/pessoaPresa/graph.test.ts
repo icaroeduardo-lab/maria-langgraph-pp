@@ -194,6 +194,32 @@ test("RG não encontrado, aceita tentar de novo, acha na 2ª → segue pro confi
   assert.match(pergunta(rApenado)?.pergunta ?? "", /Confirma que a pessoa presa é/);
 });
 
+// Issue #54 — achado ao vivo (WhatsApp/Tykhe): a pessoa pula "Sim" e já
+// manda o RG novo direto na pergunta "quer tentar de novo?".
+test("RG não encontrado, digita o RG novo DIRETO na confirmação (sem responder 'Sim' antes) → pula a pergunta, consulta na hora", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // 1ª tentativa, não encontrado
+  // RG novo digitado direto, sem "Sim" antes — não deveria perguntar "qual o RG?" de novo
+  const rApenado = await grafo.invoke(new Command({ resume: "11111111111" }), config);
+  assert.match(
+    pergunta(rApenado)?.pergunta ?? "",
+    /Confirma que a pessoa presa é/,
+    "deveria pular direto pra consulta no Verde, sem perguntar o RG de novo"
+  );
+});
+
+test("RG não encontrado, resposta inválida na confirmação (nem sim/não nem RG) → tratada como 'não', handoff_humano", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "false" }), config);
+  await grafo.invoke(new Command({ resume: "000000000" }), config);
+  const rFinal = await grafo.invoke(new Command({ resume: "não sei" }), config); // nem sim/não nem RG
+  assert.equal(pergunta(rFinal), undefined);
+  assert.equal((rFinal as { statusFinal?: string }).statusFinal, "handoff_humano", "resposta não reconhecida deveria cair no comportamento atual (tratar como não)");
+});
+
 test("RG não encontrado, NÃO quer tentar de novo → handoff_humano direto", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);

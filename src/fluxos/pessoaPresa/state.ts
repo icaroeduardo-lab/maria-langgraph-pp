@@ -13,6 +13,12 @@ export const PessoaPresaState = Annotation.Root({
   dadosApenado: Annotation<DadosApenado | undefined>,
   tentativasRg: Annotation<number | undefined>,
   querTentarNovamente: Annotation<boolean | undefined>,
+  // true quando a resposta de "quer tentar de novo?" já veio como um RG
+  // digitado direto (em vez de "Sim"/"Não") — issue #54, achado ao vivo
+  // (pessoa pula a confirmação e já manda o RG novo). Nesse caso `rg` já
+  // foi atualizado com esse valor e o roteamento pula prepararPerguntaRg
+  // (não pergunta "qual o RG?" de novo, a pessoa já respondeu).
+  digitouRgDireto: Annotation<boolean | undefined>,
   confirmaNome: Annotation<boolean | undefined>,
   statusFinal: Annotation<"concluido" | "handoff_humano" | undefined>,
   // só preenchido quando statusFinal:"handoff_humano" — os caminhos que
