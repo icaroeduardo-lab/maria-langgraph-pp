@@ -6,6 +6,7 @@ import { consultarApenadoPorRg, consultarProcesso as consultarProcessoVerde } fr
 import { prepararPergunta } from "../../ia/reescrever.js";
 import { extrairCamposLivre } from "../../ia/extrair.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
+import { MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO } from "./api.js";
 
 // Guard da extração livre — desligada por padrão, liga só com a env var
 // explícita. Esse guard decide se o grafo ENTRA no ramo de extração no
@@ -240,7 +241,14 @@ export async function pedirParentesco(state: PessoaPresaStateType): Promise<Part
   return { parentesco: resposta };
 }
 
-async function concluir(): Promise<Partial<PessoaPresaStateType>> {
+// Issue #49 — sem o número do processo, o atendimento coletou RG/nome/
+// parentesco mas não tem como confirmar/acompanhar a situação processual de
+// verdade. Marcar como "concluido" nesse caso passava a impressão de que
+// resolveu o que a pessoa precisava; vira handoff_humano em vez disso.
+async function concluir(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
+  if (state.temProcesso === false) {
+    return { statusFinal: "handoff_humano", motivoHandoff: "sem_numero_processo", mensagemFinal: MENSAGEM_HANDOFF_SEM_NUMERO_PROCESSO };
+  }
   return { statusFinal: "concluido" };
 }
 
