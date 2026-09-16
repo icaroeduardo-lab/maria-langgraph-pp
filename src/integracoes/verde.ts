@@ -40,14 +40,35 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
     // retry sem depender do Verde real) — qualquer outro RG "acha" a pessoa
     // de teste.
     if (rg === "000000000") return { encontrado: false };
+    // situacao/tipoPreso/regime sem sufixo "(mock)" de propósito (issue
+    // #57) — concluir() (fluxos/pessoaPresa/graph.ts) compara esses 3
+    // campos por igualdade estrita contra o que o Verde real devolve, um
+    // sufixo quebraria a comparação em teste.
+    //
+    // Sentinelas de teste (issue #57 — situação/tipo/regime fora do
+    // permitido, ou situação com prefixo "EM" pra testar a normalização),
+    // mesmo padrão de "000000000" acima. Qualquer outro RG cai no caso
+    // "tudo permitido" (situação ATIVO, tipo CONDENADO, regime SEMIABERTO).
+    if (rg === "22222222222") {
+      return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "LIBERTADO", tipoPreso: "CONDENADO", regime: "SEMIABERTO" };
+    }
+    if (rg === "33333333333") {
+      return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "ATIVO", tipoPreso: "PROVISÓRIO", regime: "SEMIABERTO" };
+    }
+    if (rg === "44444444444") {
+      return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "ATIVO", tipoPreso: "CONDENADO", regime: "ABERTO" };
+    }
+    if (rg === "55555555555") {
+      return { encontrado: true, idSeap: 999999, idPessoa: 999999, nome: "Pessoa de Teste (mock)", situacao: "EM RESDOM", tipoPreso: "CONDENADO", regime: "FECHADO" };
+    }
     return {
       encontrado: true,
       idSeap: 999999,
       idPessoa: 999999,
       nome: "Pessoa de Teste (mock)",
       situacao: "ATIVO",
-      tipoPreso: "CONDENADO (mock)",
-      regime: "SEMIABERTO (mock)",
+      tipoPreso: "CONDENADO",
+      regime: "SEMIABERTO",
     };
   }
   try {

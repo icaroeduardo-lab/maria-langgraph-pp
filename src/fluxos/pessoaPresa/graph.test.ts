@@ -154,6 +154,67 @@ test("fluxo completo: processo NÃO ENCONTRADO na consulta → handoff_humano, m
   assert.equal(final.motivoHandoff, "origem_processo_nao_suportada");
 });
 
+// Issue #57 — situação/tipo de preso/regime fora do permitido (ticket
+// original do sistema de origem, SIPEN) também viram handoff_humano, no
+// mesmo esquema de #49/#51: fluxo continua perguntando normalmente, só o
+// desfecho final muda. Sentinelas de RG simulam cada caso (ver
+// integracoes/verde.ts::consultarApenadoPorRg).
+test("fluxo completo: situação fora do permitido (ex: LIBERTADO) → handoff_humano (issue #57)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // origem SEEU (padrão)
+  await grafo.invoke(new Command({ resume: "22222222222" }), config); // situação LIBERTADO (sentinela)
+  await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config); // parentesco
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "handoff_humano");
+  assert.equal(final.motivoHandoff, "dados_pessoa_nao_atendidos");
+});
+
+test("fluxo completo: tipo de preso fora do permitido (ex: PROVISÓRIO) → handoff_humano (issue #57)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config);
+  await grafo.invoke(new Command({ resume: "33333333333" }), config); // tipoPreso PROVISÓRIO (sentinela)
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config);
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "handoff_humano");
+  assert.equal(final.motivoHandoff, "dados_pessoa_nao_atendidos");
+});
+
+test("fluxo completo: regime fora do permitido (ex: ABERTO) → handoff_humano (issue #57)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config);
+  await grafo.invoke(new Command({ resume: "44444444444" }), config); // regime ABERTO (sentinela)
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config);
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "handoff_humano");
+  assert.equal(final.motivoHandoff, "dados_pessoa_nao_atendidos");
+});
+
+// Achado ao vivo: Verde é inconsistente no prefixo "EM" ("ATIVO" sem,
+// "EM RESDOM" com) — normalizarSituacao (graph.ts) remove esse prefixo
+// antes de comparar, então "EM RESDOM" deveria ser reconhecido igual a
+// "RESDOM" (situação permitida) e concluir normalmente.
+test("fluxo completo: situação com prefixo 'EM' (EM RESDOM) → reconhecida, conclui normalmente (issue #57)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config);
+  await grafo.invoke(new Command({ resume: "55555555555" }), config); // situação "EM RESDOM" (sentinela)
+  await grafo.invoke(new Command({ resume: "true" }), config);
+  const rFinal = await grafo.invoke(new Command({ resume: "amigo" }), config);
+  const final = rFinal as { statusFinal?: string; motivoHandoff?: string };
+  assert.equal(final.statusFinal, "concluido", "'EM RESDOM' deveria ser reconhecido como 'RESDOM' (situação permitida)");
+  assert.equal(final.motivoHandoff, undefined);
+});
+
 test("confirmação de nome com 'Sim' literal → concluido (cenário exato do bug real: WhatsApp/Tykhe manda 'Sim', não 'true')", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
