@@ -110,8 +110,10 @@ async function pedirLivre(state: PessoaPresaStateType): Promise<Partial<PessoaPr
     ...(extraido.rg !== undefined ? { rg: extraido.rg } : {}),
     ...(extraido.parentesco !== undefined ? { parentesco: extraido.parentesco } : {}),
     // único nó deste fluxo que chama IA fora de prepararPergunta() — soma o
-    // delta manualmente (issue #35).
+    // delta manualmente (issue #35, entrada/saída discriminados na #69).
     tokensGastosTotal: extraido.tokensTotal ?? 0,
+    tokensGastosEntrada: extraido.tokensEntrada ?? 0,
+    tokensGastosSaida: extraido.tokensSaida ?? 0,
   };
 }
 
@@ -305,10 +307,12 @@ const PARENTESCOS_PERMITIDOS = [
 
 interface ResultadoClassificarParentesco {
   parentesco: string;
-  // ausente quando viaIA:false (NODE_ENV=test) — mesma convenção do resto
-  // do repo (issue #34/#35), sem isso tokensGastosTotal não contabiliza
+  // ausentes quando viaIA:false (NODE_ENV=test) — mesma convenção do resto
+  // do repo (issue #34/#35/#69), sem isso tokensGastosTotal não contabiliza
   // o custo real dessa chamada.
   tokensTotal?: number;
+  tokensEntrada?: number;
+  tokensSaida?: number;
 }
 
 // Classifica o relato livre contra a lista fechada acima — mesmo módulo
@@ -323,8 +327,8 @@ async function classificarParentesco(respostaLivre: string): Promise<ResultadoCl
   const sistema = `Você classifica o parentesco de quem busca informação sobre uma pessoa presa, na Defensoria Pública do RJ, a partir de um relato livre.
 Parentescos possíveis: ${PARENTESCOS_PERMITIDOS.join(", ")}.
 Regras: escolha o que melhor descreve a relação, mesmo que o relato seja indireto (ex: "fui casada com ele mas já nos divorciamos" → "Ex-esposo(a)"). Se não bater com confiança em nenhum, responda "nenhum".`;
-  const { escolhaId, tokensTotal } = await classificarEntreOpcoes(respostaLivre, sistema, PARENTESCOS_PERMITIDOS);
-  return { parentesco: escolhaId ?? "Outro", tokensTotal };
+  const { escolhaId, tokensTotal, tokensEntrada, tokensSaida } = await classificarEntreOpcoes(respostaLivre, sistema, PARENTESCOS_PERMITIDOS);
+  return { parentesco: escolhaId ?? "Outro", tokensTotal, tokensEntrada, tokensSaida };
 }
 
 export async function pedirParentesco(state: PessoaPresaStateType): Promise<Partial<PessoaPresaStateType>> {
@@ -333,8 +337,13 @@ export async function pedirParentesco(state: PessoaPresaStateType): Promise<Part
     pergunta: state.perguntaAtualTexto ?? "Qual seu parentesco com a pessoa presa?",
     tipo: "texto",
   });
-  const { parentesco, tokensTotal } = await classificarParentesco(resposta);
-  return { parentesco, tokensGastosTotal: tokensTotal ?? 0 };
+  const { parentesco, tokensTotal, tokensEntrada, tokensSaida } = await classificarParentesco(resposta);
+  return {
+    parentesco,
+    tokensGastosTotal: tokensTotal ?? 0,
+    tokensGastosEntrada: tokensEntrada ?? 0,
+    tokensGastosSaida: tokensSaida ?? 0,
+  };
 }
 
 // Issue #49 — sem o número do processo, o atendimento coletou RG/nome/

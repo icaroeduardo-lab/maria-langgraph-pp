@@ -90,11 +90,15 @@ export interface CamposPerguntaPreparada {
   perguntaAtualTexto: string;
   perguntaAtualViaIA: boolean;
   perguntaAtualTokensTotal: number | undefined;
-  // Delta pro acumulador `tokensGastosTotal` do state de cada fluxo (issue
-  // #35) — 0 quando não gastou nada de verdade (viaIA:false). Cada fluxo
-  // precisa declarar esse campo no próprio Annotation.Root com reducer de
-  // soma (ver fluxos/pessoaPresa/state.ts) pra acumular entre chamadas.
+  // Deltas pros acumuladores do state de cada fluxo (issue #35, entrada/
+  // saída discriminados na issue #69) — 0 quando não gastou nada de verdade
+  // (viaIA:false). Cada fluxo precisa declarar os 3 campos no próprio
+  // Annotation.Root com reducer de soma (ver fluxos/pessoaPresa/state.ts)
+  // pra acumular entre chamadas. tokensGastosTotal == entrada + saída
+  // sempre (soma dos outros 2, não é um valor independente).
   tokensGastosTotal: number;
+  tokensGastosEntrada: number;
+  tokensGastosSaida: number;
 }
 
 // Helper compartilhado entre TODOS os fluxos (fluxos/*/graph.ts) — cada
@@ -107,6 +111,13 @@ export interface CamposPerguntaPreparada {
 // tivesse dentro do nó que pausa, ela rodaria de novo (gastando Bedrock à
 // toa) em toda resposta.
 export async function prepararPergunta(campo: string, textoBase: string): Promise<CamposPerguntaPreparada> {
-  const { texto, viaIA, tokensTotal } = await reescreverPergunta(campo, textoBase);
-  return { perguntaAtualTexto: texto, perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal, tokensGastosTotal: tokensTotal ?? 0 };
+  const { texto, viaIA, tokensTotal, tokensEntrada, tokensSaida } = await reescreverPergunta(campo, textoBase);
+  return {
+    perguntaAtualTexto: texto,
+    perguntaAtualViaIA: viaIA,
+    perguntaAtualTokensTotal: tokensTotal,
+    tokensGastosTotal: tokensTotal ?? 0,
+    tokensGastosEntrada: tokensEntrada ?? 0,
+    tokensGastosSaida: tokensSaida ?? 0,
+  };
 }
