@@ -6,6 +6,13 @@ on:
   push:
     branches: [main]
 
+# Issue #64 — mesma proteção de deploy-release.yml: enfileira deploys em vez
+# de deixar 2 pushes próximos correrem em paralelo e brigarem pelo mesmo
+# serviço ECS (causava timeout falso-negativo no wait services-stable).
+concurrency:
+  group: deploy-prod-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   id-token: write # necessário pro OIDC (aws-actions/configure-aws-credentials)
   contents: read
