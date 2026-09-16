@@ -44,5 +44,8 @@ export const OrquestradorState = Annotation.Root({
   // dadosConhecidos.tokensGastosTotal quando a desambiguação resolve pra 1
   // fluxo (rotas/orquestrador.ts) — vira o PONTO DE PARTIDA do acumulador
   // do fluxo escolhido, não perde o gasto de antes de identificar (issue #35).
+  // tokensGastosTotalConversa == entrada + saída sempre (issue #69).
   tokensGastosTotalConversa: AnnotationTokensAcumulados(),
+  tokensGastosEntradaTotalConversa: AnnotationTokensAcumulados(),
+  tokensGastosSaidaTotalConversa: AnnotationTokensAcumulados(),
 });

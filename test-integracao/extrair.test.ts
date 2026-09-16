@@ -21,6 +21,8 @@ test("extrairCamposLivre extrai rg e parentesco de um relato livre real", async 
     assert.match(resultado.parentesco ?? "", /esposa/i);
     assert.match(resultado.numeroProcesso ?? "", /0000088-95\.2026\.8\.19\.0010/);
     assert.ok(resultado.tokensTotal !== undefined && resultado.tokensTotal > 0, "esperava usage_metadata com tokens (issue #34)");
+    assert.ok(resultado.tokensEntrada !== undefined && resultado.tokensEntrada > 0, "esperava tokens de entrada (issue #69)");
+    assert.ok(resultado.tokensSaida !== undefined && resultado.tokensSaida > 0, "esperava tokens de saída (issue #69)");
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
     process.env.EXTRACAO_LIVRE_IA = originalExtracaoIa;
