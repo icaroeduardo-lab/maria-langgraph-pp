@@ -11,6 +11,11 @@ const modelo = new ChatBedrockConverse({
   region: process.env.AWS_REGION ?? "us-east-1",
 });
 
+// Absorve instabilidade passageira do Bedrock (throttle, timeout de rede)
+// antes de cair no fallback genérico (issue #46) — poucas tentativas, não é
+// pra mascarar erro real, só evitar que 1 piscada vire fallback.
+const TENTATIVAS_RETRY_IA = 3;
+
 export interface CandidatoParaDesambiguar {
   id: string;
   nome: string;
@@ -52,7 +57,7 @@ ${opcoes}
 Gere 1 pergunta curta, natural, em português, que ajude a pessoa a escolher entre essas opções — foque na diferença prática entre elas, sem citar nomes técnicos/internos.`;
     // includeRaw:true devolve { raw, parsed } em vez de só o objeto
     // parseado — raw é a AIMessage crua, com usage_metadata (issue #34).
-    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaPergunta, { includeRaw: true });
+    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaPergunta, { includeRaw: true }).withRetry({ stopAfterAttempt: TENTATIVAS_RETRY_IA });
     // Converse API exige que a conversa comece com mensagem "user" — nunca
     // só "system" (achado ao vivo 2026-09-11, ValidationException). O relato
     // em si é o conteúdo natural dessa mensagem, não precisa duplicar no

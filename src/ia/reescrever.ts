@@ -14,6 +14,11 @@ const modelo = new ChatBedrockConverse({
   region: process.env.AWS_REGION ?? "us-east-1",
 });
 
+// Absorve instabilidade passageira do Bedrock (throttle, timeout de rede)
+// antes de cair no texto original (issue #46) — poucas tentativas, não é
+// pra mascarar erro real, só evitar que 1 piscada vire fallback.
+const TENTATIVAS_RETRY_IA = 3;
+
 const SchemaReescrita = z.object({
   pergunta: z.string().describe("a pergunta reescrita, curta e natural, em português do Brasil"),
 });
@@ -60,7 +65,7 @@ export async function reescreverPergunta(campo: string, objetivoBase: string): P
     // includeRaw:true devolve { raw, parsed } em vez de só o objeto parseado
     // — raw é a AIMessage crua, com usage_metadata (tokens de entrada/saída/
     // total). Sem isso não tem como saber quanto essa chamada custou.
-    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaReescrita, { includeRaw: true });
+    const comSaidaEstruturada = modelo.withStructuredOutput(SchemaReescrita, { includeRaw: true }).withRetry({ stopAfterAttempt: TENTATIVAS_RETRY_IA });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: SISTEMA },
       { role: "user", content: `Campo: ${campo}\nPergunta original: ${objetivoBase}\nReescreva.` },

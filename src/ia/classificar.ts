@@ -17,6 +17,11 @@ const modelo = new ChatBedrockConverse({
   region: process.env.AWS_REGION ?? "us-east-1",
 });
 
+// Absorve instabilidade passageira do Bedrock (throttle, timeout de rede)
+// antes de cair no fallback genérico (issue #46) — poucas tentativas, não é
+// pra mascarar erro real, só evitar que 1 piscada vire "não identificado".
+const TENTATIVAS_RETRY_IA = 3;
+
 export interface ResultadoClassificacaoGenerica {
   // undefined = a IA não achou nenhum candidato bater com confiança, ou a
   // chamada falhou — chamador decide o que fazer (handoff, manter texto
@@ -43,7 +48,7 @@ export async function classificarEntreOpcoes(mensagem: string, sistema: string, 
     // parseado — raw é a AIMessage crua, com usage_metadata (tokens de
     // entrada/saída/total). Sem isso não tem como saber quanto essa
     // chamada custou (issue #34).
-    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true });
+    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true }).withRetry({ stopAfterAttempt: TENTATIVAS_RETRY_IA });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: sistema },
       { role: "user", content: mensagem },
@@ -88,7 +93,7 @@ export async function classificarMultiploEntreOpcoes(mensagem: string, sistema: 
           "ids de TODOS os candidatos que plausivelmente atendem ao relato — lista vazia se nenhum bater com confiança, 1 item se for claro, vários se o relato for genuinamente ambíguo entre mais de um. Nunca inventa id fora da lista."
         ),
     });
-    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true });
+    const comSaidaEstruturada = modelo.withStructuredOutput(Schema, { includeRaw: true }).withRetry({ stopAfterAttempt: TENTATIVAS_RETRY_IA });
     const resultado = await comSaidaEstruturada.invoke([
       { role: "system", content: sistema },
       { role: "user", content: mensagem },
