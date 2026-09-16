@@ -52,7 +52,10 @@ test("POST 2x no MESMO chatId não reinicia — continua na pergunta do RG, não
   assert.match(body.resposta, /RG da pessoa presa/, "deveria continuar na pergunta do RG, não voltar pro início");
 });
 
-test("fluxo completo: termina concluido, metadados com dadosApenado/parentesco preenchidos", async () => {
+// Sem número do processo, o desfecho é handoff_humano (issue #49) — mesmo
+// assim os metadados (dadosApenado/parentesco) continuam preenchidos
+// normalmente, é só o status final que muda.
+test("fluxo completo SEM processo: termina handoff_humano (issue #49), metadados com dadosApenado/parentesco preenchidos", async () => {
   const app = await montarApp();
   const chatId = novoChatId();
   const responder = (resposta: string) =>
@@ -66,7 +69,8 @@ test("fluxo completo: termina concluido, metadados com dadosApenado/parentesco p
   const body = res.json();
 
   assert.equal(res.statusCode, 200);
-  assert.equal(body.status, "concluido");
+  assert.equal(body.status, "handoff_humano");
+  assert.equal(body.metadados.motivoHandoff, "sem_numero_processo");
   assert.equal(body.metadados.parentesco, "amigo");
   // dadosApenado/dadosProcesso em metadados são um RECORTE (decisão
   // 2026-09-09) — só os campos que a outra API vai consumir, sem o
