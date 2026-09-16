@@ -415,3 +415,54 @@ test("extração livre ligada, mas NODE_ENV=test — não extrai nada de verdade
     process.env.EXTRACAO_LIVRE_IA = original;
   }
 });
+
+// Issue #17 — resposta livre de pedirParentesco é classificada contra lista
+// fechada (não guarda texto cru). MOCK_CLASSIFICACAO_PARENTESCO simula o
+// que a IA teria escolhido — classificarParentesco (graph.ts) só lê essa var
+// em NODE_ENV=test, mesmo padrão de MOCK_CLASSIFICACAO_FLOWID(S) no orquestrador.
+async function ateParentesco(resposta: string, config: ReturnType<typeof novoConfig>) {
+  await grafo.invoke({}, config); // tem processo?
+  await grafo.invoke(new Command({ resume: "false" }), config); // → RG direto
+  await grafo.invoke(new Command({ resume: "11111111111" }), config); // RG
+  await grafo.invoke(new Command({ resume: "true" }), config); // confirma nome
+  return grafo.invoke(new Command({ resume: resposta }), config); // parentesco
+}
+
+test("parentesco: relato indireto com match claro → classificado pro valor da lista (issue #17)", async () => {
+  const original = process.env.MOCK_CLASSIFICACAO_PARENTESCO;
+  process.env.MOCK_CLASSIFICACAO_PARENTESCO = "Ex-esposo(a)";
+  try {
+    const config = novoConfig();
+    const r = await ateParentesco("Fui casada por dez anos mas já nos divorciamos", config);
+    const final = r as { parentesco?: string };
+    assert.equal(final.parentesco, "Ex-esposo(a)", "relato indireto deveria virar o valor normalizado da lista, não o texto cru");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_PARENTESCO = original;
+  }
+});
+
+test("parentesco: resposta já é um valor da lista → classifica sem ambiguidade (issue #17)", async () => {
+  const original = process.env.MOCK_CLASSIFICACAO_PARENTESCO;
+  process.env.MOCK_CLASSIFICACAO_PARENTESCO = "Amigo(a)";
+  try {
+    const config = novoConfig();
+    const r = await ateParentesco("amigo", config);
+    const final = r as { parentesco?: string };
+    assert.equal(final.parentesco, "Amigo(a)");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_PARENTESCO = original;
+  }
+});
+
+test("parentesco: relato sem match claro → cai em 'Outro', nunca guarda texto cru (issue #17)", async () => {
+  const original = process.env.MOCK_CLASSIFICACAO_PARENTESCO;
+  delete process.env.MOCK_CLASSIFICACAO_PARENTESCO; // sem mock → classificarParentesco cai no default "Outro"
+  try {
+    const config = novoConfig();
+    const r = await ateParentesco("um relato qualquer sem relação clara", config);
+    const final = r as { parentesco?: string };
+    assert.equal(final.parentesco, "Outro");
+  } finally {
+    process.env.MOCK_CLASSIFICACAO_PARENTESCO = original;
+  }
+});
