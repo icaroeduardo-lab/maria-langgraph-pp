@@ -41,6 +41,12 @@ export interface RespostaAtendimento {
   // campo tokensGastosTotal com reducer de soma). 0 quando nenhuma chamada
   // de IA rodou de verdade, nunca ausente/undefined nesse caso.
   tokensGastosTotal?: number;
+  // Discriminação de entrada/saída (issue #69) — entrada != saída em preço
+  // no Bedrock, tokensGastosTotal sozinho não dá pra calcular custo real.
+  // tokensGastosEntrada + tokensGastosSaida == tokensGastosTotal sempre.
+  // Mesma condição de presença de tokensGastosTotal.
+  tokensGastosEntrada?: number;
+  tokensGastosSaida?: number;
   _links: Links;
 }
 
@@ -49,6 +55,8 @@ type ValoresAtendimento = Record<string, unknown> & {
   mensagemFinal?: string;
   cpf?: string;
   tokensGastosTotal?: number;
+  tokensGastosEntrada?: number;
+  tokensGastosSaida?: number;
 };
 
 function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
@@ -130,6 +138,14 @@ const respostaAtendimentoSchema = {
       type: "number",
       description: "Soma de todos os tokens de IA gastos nesta conversa — só presente quando status:concluido/handoff_humano",
     },
+    tokensGastosEntrada: {
+      type: "number",
+      description: "Parte de tokensGastosTotal referente a tokens de ENTRADA — entrada e saída custam diferente no Bedrock. Mesma condição de presença de tokensGastosTotal.",
+    },
+    tokensGastosSaida: {
+      type: "number",
+      description: "Parte de tokensGastosTotal referente a tokens de SAÍDA. Mesma condição de presença de tokensGastosTotal.",
+    },
     _links: linksSchema,
   },
 } as const;
@@ -188,8 +204,10 @@ function montarRespostaAtendimento(
     metadados,
     dadosColetados,
     // 0 (não undefined) quando nenhuma chamada de IA rodou de verdade
-    // nesta conversa — issue #35.
+    // nesta conversa — issue #35 (entrada/saída discriminados na #69).
     tokensGastosTotal: values.tokensGastosTotal ?? 0,
+    tokensGastosEntrada: values.tokensGastosEntrada ?? 0,
+    tokensGastosSaida: values.tokensGastosSaida ?? 0,
     _links: montarLinks(chatId, status),
   };
 }

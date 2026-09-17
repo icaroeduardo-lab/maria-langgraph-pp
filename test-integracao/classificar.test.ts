@@ -22,6 +22,10 @@ test("classificarEntreOpcoes escolhe o candidato certo e devolve tokens de uso (
     assert.equal(resultado.viaIA, true, "esperava a IA responder com sucesso (credencial AWS configurada)");
     assert.equal(resultado.escolhaId, "gato");
     assert.ok(resultado.tokensTotal !== undefined && resultado.tokensTotal > 0, "esperava usage_metadata com tokens");
+    // issue #69 — entrada/saída discriminados, não só o total combinado.
+    assert.ok(resultado.tokensEntrada !== undefined && resultado.tokensEntrada > 0, "esperava tokens de entrada");
+    assert.ok(resultado.tokensSaida !== undefined && resultado.tokensSaida > 0, "esperava tokens de saída");
+    assert.equal(resultado.tokensEntrada! + resultado.tokensSaida!, resultado.tokensTotal, "entrada + saída deveria bater com o total");
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
   }
@@ -35,6 +39,8 @@ test("classificarMultiploEntreOpcoes devolve tokens de uso (issue #34)", async (
     assert.equal(resultado.viaIA, true, "esperava a IA responder com sucesso (credencial AWS configurada)");
     assert.ok(resultado.ids.includes("gato"));
     assert.ok(resultado.tokensTotal !== undefined && resultado.tokensTotal > 0, "esperava usage_metadata com tokens");
+    assert.ok(resultado.tokensEntrada !== undefined && resultado.tokensEntrada > 0, "esperava tokens de entrada (issue #69)");
+    assert.ok(resultado.tokensSaida !== undefined && resultado.tokensSaida > 0, "esperava tokens de saída (issue #69)");
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
   }

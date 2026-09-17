@@ -93,16 +93,64 @@ test("tem RO, CPF válido → conclui urgente, mensagem cita o órgão real (moc
   assert.match(orgaos?.orgaos[0]?.nome ?? "", /Juizado/);
 });
 
-test("tem RO, CPF não encontrado no Verde (idPessoa=0) → sem órgão, handoff_humano, motivo sem_orgao_disponivel", async () => {
+// Issue #72 — CPF não encontrado no ramo com RO (o mais urgente) agora dá
+// até 3 tentativas antes de desistir, em vez de handoff direto — mesmo
+// racional do retry de RG em pessoaPresa.
+test("tem RO, CPF não encontrado no Verde (idPessoa=0) → pergunta se quer tentar de novo (issue #72)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
   const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+  assert.match(pergunta(r)?.pergunta ?? "", /Não encontrei ninguém com esse CPF \(tentativa 1 de 3\)/);
+  assert.equal(pergunta(r)?.tipo, "sim_nao");
+});
+
+test("tem RO, CPF errado 1x depois acerta → conclui normal (issue #72)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
+  await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf errado (não encontrado)
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf certo
+  assert.equal(pergunta(r), undefined);
+  assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
+  assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
+});
+
+test("tem RO, CPF errado, responde 'Não' quer tentar de novo → handoff_humano, motivo cpf_nao_encontrado (issue #72)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
+  await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf errado
+  const r = await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo
   assert.equal(pergunta(r), undefined);
   assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
-  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "sem_orgao_disponivel");
+  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "cpf_nao_encontrado");
+  assert.match((r as { mensagemFinal?: string }).mensagemFinal ?? "", /Não consegui localizar seus dados/);
+});
+
+test("tem RO, esgota as 3 tentativas de CPF → handoff_humano, motivo cpf_nao_encontrado (issue #72)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO → pausa pedirCpf
+  const t1 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 1
+  assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
+  const t2 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 2
+  assert.match(pergunta(t2)?.pergunta ?? "", /tentativa 2 de 3/);
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
+  const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 3, esgotou
+  assert.equal(pergunta(r), undefined, "esgotou as 3 tentativas — não deveria perguntar de novo");
+  assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
+  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "cpf_nao_encontrado");
 });
 
 test("sem RO, CPF válido → conclui padrão, mensagem cita o órgão real (mock)", async () => {
@@ -183,7 +231,11 @@ test("plantão vigente (MOCK_PLANTAO_VIGENTE) → usa órgão de plantão, não 
   }
 });
 
-test("plantão vigente + idPessoa não encontrado → sem órgão de plantão, handoff_humano", async () => {
+// Órgão de plantão nunca tem fallback pra idAssistido=0 (diferente da
+// consulta normal sem RO, que sempre acha algo) — RO nem entra nessa
+// decisão (endpoint de plantão não recebe RO). Issue #72: mesmo assim,
+// CPF errado agora dá chance de corrigir em vez de handoff direto.
+test("plantão vigente + CPF não encontrado → pergunta se quer tentar de novo, depois acerta e conclui", async () => {
   const original = process.env.MOCK_PLANTAO_VIGENTE;
   process.env.MOCK_PLANTAO_VIGENTE = "true";
   try {
@@ -192,10 +244,14 @@ test("plantão vigente + idPessoa não encontrado → sem órgão de plantão, h
     await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
     await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
     await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
-    const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+    const rTentativa = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+    assert.match(pergunta(rTentativa)?.pergunta ?? "", /Não encontrei ninguém com esse CPF \(tentativa 1 de 3\)/);
+    await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo
+    const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf certo
     assert.equal(pergunta(r), undefined);
-    assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
-    assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "sem_orgao_disponivel");
+    assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
+    const orgaos = (r as { orgaosViolenciaDomestica?: { orgaos: Array<{ nome: string }> } }).orgaosViolenciaDomestica;
+    assert.match(orgaos?.orgaos[0]?.nome ?? "", /Plantão/);
   } finally {
     process.env.MOCK_PLANTAO_VIGENTE = original;
   }

@@ -32,6 +32,11 @@ const respostaOrquestradorSchema = {
       type: "number",
       description: "Soma de todos os tokens de IA gastos nesta conversa (classificação + desambiguação + fluxo final) — só presente quando status:concluido/handoff_humano",
     },
+    // Mesmo motivo do comentário acima sobre tokensGastosTotal — precisa
+    // declarar aqui ou o fast-json-stringify descarta silenciosamente
+    // (issue #69).
+    tokensGastosEntrada: { type: "number", description: "Parte de tokensGastosTotal referente a tokens de ENTRADA — mesma condição de presença de tokensGastosTotal." },
+    tokensGastosSaida: { type: "number", description: "Parte de tokensGastosTotal referente a tokens de SAÍDA — mesma condição de presença de tokensGastosTotal." },
     flowId: {
       type: "string",
       description:
@@ -119,9 +124,11 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
           ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
           : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
 
-      const { tokensGastosRodada, tokensGastosTotalConversa } = resultado as {
+      const { tokensGastosRodada, tokensGastosTotalConversa, tokensGastosEntradaTotalConversa, tokensGastosSaidaTotalConversa } = resultado as {
         tokensGastosRodada?: number;
         tokensGastosTotalConversa?: number;
+        tokensGastosEntradaTotalConversa?: number;
+        tokensGastosSaidaTotalConversa?: number;
       };
 
       const interrupt = extrairInterruptDoInvoke(resultado);
@@ -164,7 +171,12 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       // triagem (issue #35). Mesmo mecanismo de dadosConhecidos já usado
       // pra pré-preencher campo respondido (criarAtendimento passa direto
       // pro state inicial do grafo).
-      const dadosConhecidosComTokens = { ...(body?.dadosConhecidos ?? {}), tokensGastosTotal: tokensGastosTotalConversa ?? 0 };
+      const dadosConhecidosComTokens = {
+        ...(body?.dadosConhecidos ?? {}),
+        tokensGastosTotal: tokensGastosTotalConversa ?? 0,
+        tokensGastosEntrada: tokensGastosEntradaTotalConversa ?? 0,
+        tokensGastosSaida: tokensGastosSaidaTotalConversa ?? 0,
+      };
       const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, dadosConhecidosComTokens, req.log);
       if (resultadoAtendimento.statusCode !== 200) return reply.code(resultadoAtendimento.statusCode).send(resultadoAtendimento.corpo);
       return reply.code(200).header("Location", resultadoAtendimento.location).send(resultadoAtendimento.corpo);

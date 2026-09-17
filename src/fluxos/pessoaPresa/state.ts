@@ -56,6 +56,9 @@ export const PessoaPresaState = Annotation.Root({
   perguntaAtualViaIA: Annotation<boolean | undefined>,
   perguntaAtualTokensTotal: Annotation<number | undefined>,
   // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35) — ver
-  // shared/tokensAcumulados.ts.
+  // shared/tokensAcumulados.ts. tokensGastosTotal == entrada + saída sempre
+  // (issue #69 — discrimina os 2 porque custam diferente no Bedrock).
   tokensGastosTotal: AnnotationTokensAcumulados(),
+  tokensGastosEntrada: AnnotationTokensAcumulados(),
+  tokensGastosSaida: AnnotationTokensAcumulados(),
 });

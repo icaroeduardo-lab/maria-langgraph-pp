@@ -53,13 +53,20 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   // simplesmente não estar lá, quebrando o teste por sorte de hash.
   const catalogoCompleto = await catalogoParaClassificacao();
   const pool: CandidatoOrquestrador[] = state.candidatosRestantes ?? (await buscarCandidatos(state.mensagem, CANDIDATOS_MAXIMOS, catalogoCompleto));
-  const { ids, tokensTotal } = await classificarFluxosPlausiveis(textoParaClassificacao(state), pool);
+  const { ids, tokensTotal, tokensEntrada, tokensSaida } = await classificarFluxosPlausiveis(textoParaClassificacao(state), pool);
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));
   const plausiveis = ids.map((id) => porId.get(id)).filter((c): c is CandidatoOrquestrador => c !== undefined);
   // Sempre 1º nó da rodada — sobrescreve (não soma) de propósito, é o
   // início da contagem desta rodada (issue #34). tokensGastosTotalConversa
-  // tem reducer de soma (issue #35) — aqui é só o DELTA desta chamada.
-  return { candidatosRestantes: plausiveis, tokensGastosRodada: tokensTotal, tokensGastosTotalConversa: tokensTotal ?? 0 };
+  // tem reducer de soma (issue #35, entrada/saída discriminados na #69) —
+  // aqui é só o DELTA desta chamada.
+  return {
+    candidatosRestantes: plausiveis,
+    tokensGastosRodada: tokensTotal,
+    tokensGastosTotalConversa: tokensTotal ?? 0,
+    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
+    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
+  };
 }
 
 // Esgotar o limite de rodadas com >1 candidato ainda ambíguo vira "nenhum"
@@ -124,11 +131,13 @@ async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Prom
   // Match no banco não gasta token nenhum (não chama IA) — tokensGastosRodada
   // não entra no retorno, mantém o que "classificar" já escreveu.
   if (perguntaDoBanco) return { perguntaAtualTexto: perguntaDoBanco };
-  const { pergunta, tokensTotal } = await gerarPerguntaDesambiguacao(textoParaClassificacao(state), candidatos);
+  const { pergunta, tokensTotal, tokensEntrada, tokensSaida } = await gerarPerguntaDesambiguacao(textoParaClassificacao(state), candidatos);
   return {
     perguntaAtualTexto: pergunta,
     tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
     tokensGastosTotalConversa: tokensTotal ?? 0,
+    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
+    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
   };
 }
 
@@ -157,7 +166,7 @@ async function pedirDesambiguacao(state: OrquestradorStateType): Promise<Partial
   // anterior + última resposta da rodada passada, ou o bruto se essa é a
   // 1ª vez cruzando o limite) — a resposta ATUAL fica de fora do resumo,
   // guardada verbatim em ultimaResposta.
-  const { resumo, tokensTotal } = await sumarizarRelato(textoParaClassificacao(state));
+  const { resumo, tokensTotal, tokensEntrada, tokensSaida } = await sumarizarRelato(textoParaClassificacao(state));
   return {
     mensagem,
     resumoRelato: resumo,
@@ -165,6 +174,8 @@ async function pedirDesambiguacao(state: OrquestradorStateType): Promise<Partial
     rodada: novaRodada,
     tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
     tokensGastosTotalConversa: tokensTotal ?? 0,
+    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
+    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
   };
 }
 
