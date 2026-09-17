@@ -124,16 +124,25 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
           ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
           : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
 
-      const { tokensGastosRodada, tokensGastosTotalConversa, tokensGastosEntradaTotalConversa, tokensGastosSaidaTotalConversa } = resultado as {
+      const { tokensGastosRodada, tokensGastosTotalConversa, tokensGastosEntradaTotalConversa, tokensGastosSaidaTotalConversa, rodada } = resultado as {
         tokensGastosRodada?: number;
         tokensGastosTotalConversa?: number;
         tokensGastosEntradaTotalConversa?: number;
         tokensGastosSaidaTotalConversa?: number;
+        rodada?: number;
       };
 
+      // Issue #90 — `evento` fixo (não só texto livre da mensagem) +
+      // `tokensGastosTotal` como nome ÚNICO de campo de tokens (era
+      // tokensTotal aqui, diferente do resto dos logs). Issue #89 — `rodada`
+      // agora vai pro log (faltava pra montar o painel de rodadas de
+      // desambiguação até resolver).
       const interrupt = extrairInterruptDoInvoke(resultado);
       if (interrupt) {
-        req.log.info({ chatId, tipoResposta: interrupt.tipo, tokensTotal: tokensGastosRodada }, "orquestrador: pergunta de desambiguação enviada");
+        req.log.info(
+          { chatId, evento: "orquestrador_pergunta_enviada", tipoResposta: interrupt.tipo, tokensGastosTotal: tokensGastosRodada, rodada },
+          "orquestrador: pergunta de desambiguação enviada"
+        );
         return reply.code(200).send({
           resposta: interrupt.pergunta,
           tipoResposta: interrupt.tipo,
@@ -146,7 +155,10 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       const { statusFinal, flowIdEscolhido } = resultado as { statusFinal?: string; flowIdEscolhido?: string };
 
       if (statusFinal !== "identificado" || !flowIdEscolhido) {
-        req.log.info({ chatId, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo não identificado, handoff_humano direto");
+        req.log.info(
+          { chatId, evento: "orquestrador_finalizado_sem_fluxo", tokensGastosTotal: tokensGastosRodada, rodada },
+          "orquestrador: fluxo não identificado, handoff_humano direto"
+        );
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
@@ -157,14 +169,17 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
         // buscarFluxo() resolve os dois casos (implementado de verdade ou
         // grafo padrão, issue #21). Cair aqui é inconsistência real entre os
         // catálogos, não um caminho esperado.
-        req.log.error({ chatId, flowId: flowIdEscolhido }, "orquestrador: flowId identificado não existe em nenhum catálogo (inconsistência)");
+        req.log.error({ chatId, flowId: flowIdEscolhido, evento: "orquestrador_inconsistencia" }, "orquestrador: flowId identificado não existe em nenhum catálogo (inconsistência)");
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
       // fluxo pode ser um implementado de verdade OU o grafo padrão
       // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
       // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
-      req.log.info({ chatId, flowId: flowIdEscolhido, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo identificado");
+      req.log.info(
+        { chatId, evento: "orquestrador_fluxo_identificado", flowId: flowIdEscolhido, tokensGastosTotal: tokensGastosRodada, rodada },
+        "orquestrador: fluxo identificado"
+      );
       // Repassa o total gasto ANTES de identificar o fluxo (classificação +
       // desambiguação) como ponto de partida do acumulador do fluxo
       // escolhido — sem isso o total final do chat perdia o custo da
