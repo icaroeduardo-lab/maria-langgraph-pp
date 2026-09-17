@@ -18,6 +18,11 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // precisam de idPessoa pra consultar órgão, ver graph.ts.
   cpf: Annotation<string | undefined>,
   dadosPessoa: Annotation<DadosPessoa | undefined>,
+  // Issue #72 — quantas vezes já tentou consultar o CPF (incrementado em
+  // consultarPessoa a cada chamada) — dá até 3 tentativas antes de desistir,
+  // mesmo padrão de tentativasRg em pessoaPresa/state.ts.
+  tentativasCpf: Annotation<number | undefined>,
+  querTentarNovamenteCpf: Annotation<boolean | undefined>,
   // ids de plantão(ões) vigente(s) agora (consultarPlantaoVigente) — vazio
   // = fora de horário de plantão, usa consulta de órgão normal. Não vazio =
   // usa consultarOrgaosPlantaoViolenciaDomestica em vez da normal.
@@ -35,7 +40,10 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // só preenchido quando statusFinal:"handoff_humano". falha_encaminhamento
   // = achou o órgão certo mas o POST de encaminhamento de verdade falhou —
   // não inventa sucesso pro usuário, manda pra atendente confirmar.
-  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | "falha_encaminhamento" | undefined>,
+  // cpf_nao_encontrado (issue #72) = esgotou as 3 tentativas de CPF sem
+  // achar a pessoa — motivo específico, não confunde com "sem_orgao_disponivel"
+  // (que é pra pessoa ENCONTRADA sem órgão disponível pra ela).
+  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | "falha_encaminhamento" | "cpf_nao_encontrado" | undefined>,
   // só preenchido quando statusFinal:"concluido".
   tipoEncaminhamento: Annotation<"padrao" | "urgente" | undefined>,
   // texto final específico do desfecho — sobrescreve o texto genérico
