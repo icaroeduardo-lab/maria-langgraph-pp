@@ -27,6 +27,20 @@ function respostaEhSim(resposta: string): boolean {
   return normalizado === "true" || normalizado === "sim" || normalizado === "s" || normalizado === "yes";
 }
 
+// Issue #77 — reconhece CPF/processo digitado direto na pergunta "quer
+// tentar de novo?" (em vez de "Sim") pelo FORMATO, mesmo padrão de
+// rgFormatoValido em pessoaPresa/graph.ts (issue #54). Sem isso,
+// respostaEhSim(resposta) devolveria false pra um CPF/processo digitado
+// direto, e o fluxo entenderia como "não quer tentar de novo" — pior que
+// não ter retry, engana quem já tentou se corrigir.
+function cpfFormatoValido(valor: string): boolean {
+  return valor.replace(/\D/g, "").length === 11;
+}
+
+function numeroProcessoFormatoValido(valor: string): boolean {
+  return valor.replace(/\D/g, "").length === 20;
+}
+
 // Gate de elegibilidade — primeira pergunta do fluxo (decisão de design:
 // perguntar isso ANTES de processo, pra não gastar pergunta à toa quando a
 // resposta for "não").
@@ -111,11 +125,18 @@ async function perguntaTentarNovamenteProcesso(state: ViolenciaDomesticaStateTyp
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { querTentarNovamenteProcesso: respostaEhSim(resposta) };
+  // Issue #77 — número de processo digitado direto em vez de "Sim" já é
+  // aceito como o novo valor, pulando pedirNumeroProcesso (vai direto pra
+  // consultarProcesso).
+  if (numeroProcessoFormatoValido(resposta)) {
+    return { querTentarNovamenteProcesso: true, numeroProcesso: resposta, digitouProcessoDireto: true };
+  }
+  return { querTentarNovamenteProcesso: respostaEhSim(resposta), digitouProcessoDireto: false };
 }
 
-function depoisDePerguntaTentarProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "temRO" {
-  return state.querTentarNovamenteProcesso ? "pedirNumeroProcesso" : "temRO";
+function depoisDePerguntaTentarProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "temRO" | "consultarProcesso" {
+  if (!state.querTentarNovamenteProcesso) return "temRO";
+  return state.digitouProcessoDireto ? "consultarProcesso" : "pedirNumeroProcesso";
 }
 
 async function prepararPerguntaTemRO(): Promise<Partial<ViolenciaDomesticaStateType>> {
@@ -230,11 +251,17 @@ async function perguntaTentarNovamenteCpf(state: ViolenciaDomesticaStateType): P
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { querTentarNovamenteCpf: respostaEhSim(resposta) };
+  // Issue #77 — CPF digitado direto em vez de "Sim" já é aceito como o novo
+  // valor, pulando pedirCpf (vai direto pra consultarPessoa).
+  if (cpfFormatoValido(resposta)) {
+    return { querTentarNovamenteCpf: true, cpf: resposta, digitouCpfDireto: true };
+  }
+  return { querTentarNovamenteCpf: respostaEhSim(resposta), digitouCpfDireto: false };
 }
 
-function depoisDePerguntaTentarCpf(state: ViolenciaDomesticaStateType): "pedirCpf" | "cpfEsgotado" {
-  return state.querTentarNovamenteCpf ? "pedirCpf" : "cpfEsgotado";
+function depoisDePerguntaTentarCpf(state: ViolenciaDomesticaStateType): "pedirCpf" | "cpfEsgotado" | "consultarPessoa" {
+  if (!state.querTentarNovamenteCpf) return "cpfEsgotado";
+  return state.digitouCpfDireto ? "consultarPessoa" : "pedirCpf";
 }
 
 // Esgotou as 3 tentativas (ou respondeu "não" quer tentar de novo) — motivo
@@ -351,6 +378,9 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addConditionalEdges("perguntaTentarNovamenteProcesso", depoisDePerguntaTentarProcesso, {
     pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",
     temRO: "prepararPerguntaTemRO",
+    // processo digitado direto na pergunta de retry (issue #77) — pula
+    // prepararPerguntaNumeroProcesso, consulta o Verde de novo direto.
+    consultarProcesso: "consultarProcesso",
   })
   .addEdge("prepararPerguntaTemRO", "pedirTemRO")
   .addEdge("pedirTemRO", "prepararPerguntaCpf")
@@ -369,6 +399,9 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addConditionalEdges("perguntaTentarNovamenteCpf", depoisDePerguntaTentarCpf, {
     pedirCpf: "prepararPerguntaCpf",
     cpfEsgotado: "cpfEsgotado",
+    // CPF digitado direto na pergunta de retry (issue #77) — pula
+    // prepararPerguntaCpf, consulta o Verde de novo direto.
+    consultarPessoa: "consultarPessoa",
   })
   .addEdge("cpfEsgotado", END)
   .addConditionalEdges("criarEncaminhamento", depoisDeCriarEncaminhamento, {

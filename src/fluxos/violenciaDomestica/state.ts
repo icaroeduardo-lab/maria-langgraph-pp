@@ -17,6 +17,8 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // o número confirmado.
   tentativasProcesso: Annotation<number | undefined>,
   querTentarNovamenteProcesso: Annotation<boolean | undefined>,
+  // Issue #77 — mesmo racional de digitouCpfDireto, pro número de processo.
+  digitouProcessoDireto: Annotation<boolean | undefined>,
   temRegistroOcorrencia: Annotation<boolean | undefined>,
   // vem pronto no `dadosConhecidos` do POST /atendimentos (contrato Tykhe:
   // { cpf, idPessoa, nome, email }) — ver rotas/atendimentos.ts. Bypass
@@ -29,6 +31,10 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // mesmo padrão de tentativasRg em pessoaPresa/state.ts.
   tentativasCpf: Annotation<number | undefined>,
   querTentarNovamenteCpf: Annotation<boolean | undefined>,
+  // Issue #77 — CPF digitado direto na pergunta "quer tentar de novo?" (em
+  // vez de "Sim") já é reconhecido pelo formato, mesmo padrão de
+  // digitouRgDireto em pessoaPresa/state.ts (issue #54).
+  digitouCpfDireto: Annotation<boolean | undefined>,
   // ids de plantão(ões) vigente(s) agora (consultarPlantaoVigente) — vazio
   // = fora de horário de plantão, usa consulta de órgão normal. Não vazio =
   // usa consultarOrgaosPlantaoViolenciaDomestica em vez da normal.
