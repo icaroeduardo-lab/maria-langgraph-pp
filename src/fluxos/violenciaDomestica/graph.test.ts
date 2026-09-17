@@ -50,6 +50,49 @@ test("tem processo → pede número, consulta Verde (informativo), segue pro RO 
   assert.equal(typeof dadosProcesso?.encontrado, "boolean");
 });
 
+// Issue #75 — processo não encontrado dá até 3 tentativas, mas diferente
+// de RG/CPF, desistir NUNCA vira handoff — só segue o fluxo sem o número.
+test("processo não encontrado → pergunta se quer tentar de novo, depois acerta e segue pro RO (issue #75)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem processo
+  const t1 = await grafo.invoke(new Command({ resume: "000000000" }), config); // processo sentinela "não encontrado"
+  assert.match(pergunta(t1)?.pergunta ?? "", /Não encontrei esse número de processo \(tentativa 1 de 3\)/);
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedindo número de novo
+  const r = await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // número certo
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/);
+  assert.equal((r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso?.encontrado, true);
+});
+
+test("processo não encontrado, responde 'Não' quer tentar de novo → segue sem processo, SEM handoff (issue #75)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem processo
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // não encontrado
+  const r = await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/, "deveria seguir o fluxo, não travar nem dar handoff");
+  assert.equal((r as { statusFinal?: string }).statusFinal, undefined, "não deveria concluir/handoff só por causa do processo");
+  assert.equal((r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso?.encontrado, false);
+});
+
+test("esgota as 3 tentativas de processo → segue o fluxo direto, sem perguntar de novo e SEM handoff (issue #75)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem processo
+  const t1 = await grafo.invoke(new Command({ resume: "000000000" }), config); // tentativa 1
+  assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo
+  const t2 = await grafo.invoke(new Command({ resume: "000000000" }), config); // tentativa 2
+  assert.match(pergunta(t2)?.pergunta ?? "", /tentativa 2 de 3/);
+  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo
+  const r = await grafo.invoke(new Command({ resume: "000000000" }), config); // tentativa 3, esgotou
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/, "esgotou as 3 tentativas — deveria seguir o fluxo, não perguntar de novo nem dar handoff");
+  assert.equal((r as { statusFinal?: string }).statusFinal, undefined);
+});
+
 test("sem processo → pula direto pra pergunta do RO", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
