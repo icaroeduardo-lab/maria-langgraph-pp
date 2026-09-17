@@ -277,11 +277,20 @@ export async function criarAtendimento(
   const resultado = await fluxo.grafo.invoke(dadosConhecidos ?? {}, config);
 
   const interrupt = extrairInterruptDoInvoke(resultado);
-  const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
-    perguntaAtualViaIA?: boolean;
-    perguntaAtualTokensTotal?: number;
-  };
-  log.info({ fluxoId, chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+  // Issue #82 — grafo padrão (fluxo planejado, issue #21) pode concluir JÁ
+  // na 1ª chamada, sem interrupt nenhum — sem esse branch, esse caso ficava
+  // logado como "pergunta enviada" com tudo vazio, escondendo a conclusão
+  // das métricas de negócio (handoff por motivo, tokens gastos).
+  if (interrupt) {
+    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+      perguntaAtualViaIA?: boolean;
+      perguntaAtualTokensTotal?: number;
+    };
+    log.info({ fluxoId, chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+  } else {
+    const { statusFinal, motivoHandoff, tokensGastosTotal } = resultado as ValoresAtendimento;
+    log.info({ fluxoId, chatId, status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
+  }
 
   return {
     statusCode: 200,
@@ -454,8 +463,11 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         };
         req.log.info({ fluxoId, chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
       } else {
-        const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
-        req.log.info({ fluxoId, chatId, status }, "atendimento finalizado");
+        // Issue #82 — motivoHandoff/tokensGastosTotal agora vão pro log,
+        // sem isso não tinha como montar métrica de "handoff por motivo"
+        // nem "tokens gastos por dia" via CloudWatch Logs Insights.
+        const { statusFinal, motivoHandoff, tokensGastosTotal } = resultado as ValoresAtendimento;
+        req.log.info({ fluxoId, chatId, status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
       }
       return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }
