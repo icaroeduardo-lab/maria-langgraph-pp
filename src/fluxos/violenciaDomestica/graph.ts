@@ -84,7 +84,38 @@ async function pedirNumeroProcesso(state: ViolenciaDomesticaStateType): Promise<
 
 async function consultarProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   const dados = await consultarProcessoVerde(state.numeroProcesso ?? "");
-  return { dadosProcesso: dados };
+  return { dadosProcesso: dados, tentativasProcesso: (state.tentativasProcesso ?? 0) + 1 };
+}
+
+// Issue #75 — diferente do RG/CPF, processo é só informativo: esgotar as
+// tentativas (ou desistir) NUNCA vira handoff, só segue o fluxo sem o
+// número confirmado. "temRO" nos 2 casos de desistência (silenciosa na 3ª
+// falha, ou depois de responder "não" quer tentar de novo).
+function depoisDeConsultarProcesso(state: ViolenciaDomesticaStateType): "temRO" | "tentarNovamente" {
+  if (state.dadosProcesso?.encontrado) return "temRO";
+  return (state.tentativasProcesso ?? 0) >= 3 ? "temRO" : "tentarNovamente";
+}
+
+async function prepararPerguntaTentarNovamenteProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  return prepararPergunta(
+    "tentarNovamenteProcesso",
+    `Não encontrei esse número de processo (tentativa ${state.tentativasProcesso ?? 1} de 3). Quer tentar de novo?`
+  );
+}
+
+async function perguntaTentarNovamenteProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta:
+      state.perguntaAtualTexto ??
+      `Não encontrei esse número de processo (tentativa ${state.tentativasProcesso ?? 1} de 3). Quer tentar de novo?`,
+    tipo: "sim_nao",
+    opcoes: ["Sim", "Não"],
+  });
+  return { querTentarNovamenteProcesso: respostaEhSim(resposta) };
+}
+
+function depoisDePerguntaTentarProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "temRO" {
+  return state.querTentarNovamenteProcesso ? "pedirNumeroProcesso" : "temRO";
 }
 
 async function prepararPerguntaTemRO(): Promise<Partial<ViolenciaDomesticaStateType>> {
@@ -282,6 +313,8 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addNode("prepararPerguntaNumeroProcesso", prepararPerguntaNumeroProcesso)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
   .addNode("consultarProcesso", consultarProcesso)
+  .addNode("prepararPerguntaTentarNovamenteProcesso", prepararPerguntaTentarNovamenteProcesso)
+  .addNode("perguntaTentarNovamenteProcesso", perguntaTentarNovamenteProcesso)
   .addNode("prepararPerguntaTemRO", prepararPerguntaTemRO)
   .addNode("pedirTemRO", pedirTemRO)
   .addNode("prepararPerguntaCpf", prepararPerguntaCpf)
@@ -310,7 +343,15 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   })
   .addEdge("prepararPerguntaNumeroProcesso", "pedirNumeroProcesso")
   .addEdge("pedirNumeroProcesso", "consultarProcesso")
-  .addEdge("consultarProcesso", "prepararPerguntaTemRO")
+  .addConditionalEdges("consultarProcesso", depoisDeConsultarProcesso, {
+    temRO: "prepararPerguntaTemRO",
+    tentarNovamente: "prepararPerguntaTentarNovamenteProcesso",
+  })
+  .addEdge("prepararPerguntaTentarNovamenteProcesso", "perguntaTentarNovamenteProcesso")
+  .addConditionalEdges("perguntaTentarNovamenteProcesso", depoisDePerguntaTentarProcesso, {
+    pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",
+    temRO: "prepararPerguntaTemRO",
+  })
   .addEdge("prepararPerguntaTemRO", "pedirTemRO")
   .addEdge("pedirTemRO", "prepararPerguntaCpf")
   .addEdge("prepararPerguntaCpf", "pedirCpf")

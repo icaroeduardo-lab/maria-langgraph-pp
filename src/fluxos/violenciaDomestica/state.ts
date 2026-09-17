@@ -11,6 +11,12 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // consulta informativa (não trava o fluxo) — mesmo padrão de
   // fluxos/pessoaPresa/state.ts.
   dadosProcesso: Annotation<DadosProcesso | undefined>,
+  // Issue #75 — até 3 tentativas se o processo não for encontrado, mesmo
+  // padrão de tentativasCpf/tentativasRg. Diferente de CPF/RG: desistir
+  // NÃO vira handoff (processo é só informativo) — só segue o fluxo sem
+  // o número confirmado.
+  tentativasProcesso: Annotation<number | undefined>,
+  querTentarNovamenteProcesso: Annotation<boolean | undefined>,
   temRegistroOcorrencia: Annotation<boolean | undefined>,
   // vem pronto no `dadosConhecidos` do POST /atendimentos (contrato Tykhe:
   // { cpf, idPessoa, nome, email }) — ver rotas/atendimentos.ts. Bypass
