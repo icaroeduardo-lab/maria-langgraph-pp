@@ -11,7 +11,7 @@ import {
 } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
 import { criarCheckpointer } from "../../shared/checkpointer.js";
-import { MENSAGEM_FALHA_ENCAMINHAMENTO, MENSAGEM_NAO_VITIMA, MENSAGEM_SEM_ORGAO_DISPONIVEL } from "./api.js";
+import { MENSAGEM_CPF_NAO_ENCONTRADO, MENSAGEM_FALHA_ENCAMINHAMENTO, MENSAGEM_NAO_VITIMA, MENSAGEM_SEM_ORGAO_DISPONIVEL } from "./api.js";
 
 // Mesma tolerância de respostas sim_nao de fluxos/pessoaPresa/graph.ts — a
 // Tykhe às vezes repassa "Sim"/"Não" literal em vez de "true"/"false" (bug
@@ -104,13 +104,22 @@ async function pedirTemRO(state: ViolenciaDomesticaStateType): Promise<Partial<V
 // pergunta se não veio. Comum aos 2 ramos (com/sem RO) — os dois precisam de
 // idPessoa pra consultar órgão (ver consultarOrgaos abaixo), diferente do
 // desenho anterior em que só o ramo sem RO pedia CPF.
+//
+// Bypass só vale na tentativa 0 (issue #72, mesmo racional de
+// rgVeioDaExtracao em pessoaPresa/graph.ts) — sem o check de tentativasCpf,
+// um retry reusaria o CPF da tentativa anterior (que FALHOU) em vez de
+// perguntar de novo.
+function cpfVeioDeDadosConhecidos(state: ViolenciaDomesticaStateType): boolean {
+  return state.cpf !== undefined && (state.tentativasCpf ?? 0) === 0;
+}
+
 async function prepararPerguntaCpf(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
-  if (state.cpf !== undefined) return {};
+  if (cpfVeioDeDadosConhecidos(state)) return {};
   return prepararPergunta("cpf", "Qual o seu CPF? Informe apenas os números.");
 }
 
 async function pedirCpf(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
-  if (state.cpf !== undefined) return {};
+  if (cpfVeioDeDadosConhecidos(state)) return {};
   const resposta = interrupt<Pergunta, string>({
     pergunta: state.perguntaAtualTexto ?? "Qual o seu CPF? Informe apenas os números.",
     tipo: "texto",
@@ -120,7 +129,7 @@ async function pedirCpf(state: ViolenciaDomesticaStateType): Promise<Partial<Vio
 
 async function consultarPessoa(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   const dados = await consultarPessoaPorCpf(state.cpf ?? "");
-  return { dadosPessoa: dados };
+  return { dadosPessoa: dados, tentativasCpf: (state.tentativasCpf ?? 0) + 1 };
 }
 
 // Sem parâmetro nenhum — dá pra rodar em qualquer ponto do fluxo, roda logo
@@ -148,19 +157,62 @@ async function consultarOrgaos(state: ViolenciaDomesticaStateType): Promise<Part
   return { orgaosViolenciaDomestica: resultado };
 }
 
-function depoisDeConsultarOrgaos(state: ViolenciaDomesticaStateType): "semOrgao" | "prosseguir" {
+// Issue #72 — sem órgão encontrado tem 2 causas bem diferentes: (a) a
+// pessoa foi encontrada mas genuinamente não tem órgão disponível pra ela
+// (comportamento antigo, mensagem/motivo "sem_orgao_disponivel" inalterado),
+// ou (b) o CPF não foi encontrado (dadosPessoa.encontrado:false) — nesse
+// caso dá até 3 tentativas antes de desistir, em vez de já mandar pro
+// atendente com uma mensagem que nem fala a real do problema.
+function depoisDeConsultarOrgaos(
+  state: ViolenciaDomesticaStateType
+): "semOrgao" | "prosseguir" | "tentarCpfNovamente" | "cpfEsgotado" {
   const semOrgao = state.orgaosViolenciaDomestica?.contactarCrc || !state.orgaosViolenciaDomestica?.orgaos.length;
-  return semOrgao ? "semOrgao" : "prosseguir";
+  if (!semOrgao) return "prosseguir";
+  if (state.dadosPessoa?.encontrado === false) {
+    return (state.tentativasCpf ?? 0) >= 3 ? "cpfEsgotado" : "tentarCpfNovamente";
+  }
+  return "semOrgao";
 }
 
 // Único desfecho "sem órgão" documentado pelo Verde (RO:true sem nenhum
-// órgão encontrado) — mensagemCrc vem pronta deles ("...ligar 129"), cai no
-// texto fixo só se por algum motivo não vier.
+// órgão encontrado, PESSOA encontrada) — mensagemCrc vem pronta deles
+// ("...ligar 129"), cai no texto fixo só se por algum motivo não vier.
 async function semOrgaoDisponivel(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   return {
     statusFinal: "handoff_humano",
     motivoHandoff: "sem_orgao_disponivel",
     mensagemFinal: state.orgaosViolenciaDomestica?.mensagemCrc ?? MENSAGEM_SEM_ORGAO_DISPONIVEL,
+  };
+}
+
+async function prepararPerguntaTentarNovamenteCpf(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  return prepararPergunta(
+    "tentarNovamenteCpf",
+    `Não encontrei ninguém com esse CPF (tentativa ${state.tentativasCpf ?? 1} de 3). Quer tentar de novo?`
+  );
+}
+
+async function perguntaTentarNovamenteCpf(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta:
+      state.perguntaAtualTexto ?? `Não encontrei ninguém com esse CPF (tentativa ${state.tentativasCpf ?? 1} de 3). Quer tentar de novo?`,
+    tipo: "sim_nao",
+    opcoes: ["Sim", "Não"],
+  });
+  return { querTentarNovamenteCpf: respostaEhSim(resposta) };
+}
+
+function depoisDePerguntaTentarCpf(state: ViolenciaDomesticaStateType): "pedirCpf" | "cpfEsgotado" {
+  return state.querTentarNovamenteCpf ? "pedirCpf" : "cpfEsgotado";
+}
+
+// Esgotou as 3 tentativas (ou respondeu "não" quer tentar de novo) — motivo
+// específico, não confunde com "sem_orgao_disponivel" (issue #72).
+async function cpfEsgotado(): Promise<Partial<ViolenciaDomesticaStateType>> {
+  return {
+    statusFinal: "handoff_humano",
+    motivoHandoff: "cpf_nao_encontrado",
+    mensagemFinal: MENSAGEM_CPF_NAO_ENCONTRADO,
   };
 }
 
@@ -238,6 +290,9 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addNode("consultarPlantao", consultarPlantao)
   .addNode("consultarOrgaos", consultarOrgaos)
   .addNode("semOrgaoDisponivel", semOrgaoDisponivel)
+  .addNode("prepararPerguntaTentarNovamenteCpf", prepararPerguntaTentarNovamenteCpf)
+  .addNode("perguntaTentarNovamenteCpf", perguntaTentarNovamenteCpf)
+  .addNode("cpfEsgotado", cpfEsgotado)
   .addNode("criarEncaminhamento", criarEncaminhamento)
   .addNode("falhaEncaminhamento", falhaEncaminhamento)
   .addNode("concluir", concluir)
@@ -265,8 +320,16 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addConditionalEdges("consultarOrgaos", depoisDeConsultarOrgaos, {
     semOrgao: "semOrgaoDisponivel",
     prosseguir: "criarEncaminhamento",
+    tentarCpfNovamente: "prepararPerguntaTentarNovamenteCpf",
+    cpfEsgotado: "cpfEsgotado",
   })
   .addEdge("semOrgaoDisponivel", END)
+  .addEdge("prepararPerguntaTentarNovamenteCpf", "perguntaTentarNovamenteCpf")
+  .addConditionalEdges("perguntaTentarNovamenteCpf", depoisDePerguntaTentarCpf, {
+    pedirCpf: "prepararPerguntaCpf",
+    cpfEsgotado: "cpfEsgotado",
+  })
+  .addEdge("cpfEsgotado", END)
   .addConditionalEdges("criarEncaminhamento", depoisDeCriarEncaminhamento, {
     concluir: "concluir",
     falhou: "falhaEncaminhamento",

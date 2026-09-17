@@ -104,7 +104,7 @@ export const metadadosSchemaViolenciaDomestica = {
       },
     },
     tipoEncaminhamento: { type: "string", enum: ["padrao", "urgente"] },
-    motivoHandoff: { type: "string", enum: ["nao_e_vitima", "sem_orgao_disponivel", "falha_encaminhamento"] },
+    motivoHandoff: { type: "string", enum: ["nao_e_vitima", "sem_orgao_disponivel", "falha_encaminhamento", "cpf_nao_encontrado"] },
     encaminhamentoId: { type: "number" },
   },
 } as const;
@@ -150,6 +150,11 @@ export const MENSAGEM_SEM_ORGAO_DISPONIVEL =
 // falhou — não afirma que deu certo, evita passar informação falsa.
 export const MENSAGEM_FALHA_ENCAMINHAMENTO =
   "Identifiquei o órgão certo pro seu caso, mas tive um problema técnico ao registrar o encaminhamento. Vou passar seu atendimento pra equipe confirmar manualmente.";
+// Issue #72 — esgotou as 3 tentativas de CPF sem achar a pessoa. Mensagem
+// específica (não a de "sem órgão disponível") — o problema aqui é não
+// achar a pessoa, não falta de órgão pra atender.
+export const MENSAGEM_CPF_NAO_ENCONTRADO =
+  "Não consegui localizar seus dados com o CPF informado. Vou encaminhar seu atendimento pra um atendente confirmar manualmente.";
 
 // Fallback genérico exigido pelo contrato FluxoConfig (fluxos/index.ts) —
 // todo desfecho real deste fluxo seta mensagemFinal (acima), então isso só
