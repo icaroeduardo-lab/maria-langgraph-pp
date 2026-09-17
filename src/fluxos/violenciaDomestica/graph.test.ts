@@ -93,6 +93,20 @@ test("esgota as 3 tentativas de processo → segue o fluxo direto, sem perguntar
   assert.equal((r as { statusFinal?: string }).statusFinal, undefined);
 });
 
+// Issue #77 — mesmo bug real da #54 (RG) e do teste equivalente de CPF
+// acima: número de processo digitado direto (não "Sim") na pergunta de
+// retry tem que ser reconhecido pelo formato.
+test("processo errado, digita o número novo direto (não 'Sim') na pergunta de retry → pula direto pra consulta (issue #77)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem processo
+  await grafo.invoke(new Command({ resume: "000000000" }), config); // processo errado → pausa "tentativa 1"
+  const r = await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // número novo direto, não "Sim"
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/, "número digitado direto deveria ser aceito e consultado, seguindo pro RO");
+  assert.equal((r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso?.encontrado, true, "deveria ter consultado com o número novo, não desistido");
+});
+
 test("sem processo → pula direto pra pergunta do RO", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
@@ -194,6 +208,21 @@ test("tem RO, esgota as 3 tentativas de CPF → handoff_humano, motivo cpf_nao_e
   assert.equal(pergunta(r), undefined, "esgotou as 3 tentativas — não deveria perguntar de novo");
   assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
   assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "cpf_nao_encontrado");
+});
+
+// Issue #77 — mesmo bug real que motivou a #54 no RG: se a pessoa manda o
+// CPF novo direto (não "Sim") na pergunta de retry, o fluxo tem que
+// reconhecer pelo formato, não tratar como "não quer tentar de novo".
+test("tem RO, CPF errado, digita o CPF novo direto (não 'Sim') na pergunta de retry → pula direto pra consulta (issue #77)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
+  await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf errado → pausa "tentativa 1"
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // CPF novo direto, não "Sim"
+  assert.equal(pergunta(r), undefined, "não deveria pausar de novo, já consultou com o CPF novo");
+  assert.equal((r as { statusFinal?: string }).statusFinal, "concluido", "CPF digitado direto deveria ser aceito e consultado, não tratado como 'não quer tentar de novo'");
 });
 
 test("sem RO, CPF válido → conclui padrão, mensagem cita o órgão real (mock)", async () => {
