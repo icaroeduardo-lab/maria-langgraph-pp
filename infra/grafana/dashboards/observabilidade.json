@@ -1,6 +1,6 @@
 {
   "dashboard": {
-    "uid": "328233c1-961c-45b8-a77c-4fdd8190ee79",
+    "uid": "28921fa0-30ea-4eca-92ae-e63111ba79d1",
     "title": "Maria — Observabilidade",
     "tags": ["maria-langgraph-pp"],
     "timezone": "browser",
@@ -12,10 +12,10 @@
         "title": "CPU dos serviços ECS (%)",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ECS",
             "metricName": "CPUUtilization",
             "statistic": "Average",
@@ -26,7 +26,7 @@
             "label": "prod"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ECS",
             "metricName": "CPUUtilization",
             "statistic": "Average",
@@ -43,10 +43,10 @@
         "title": "Latência do ALB por ambiente (p99, ms)",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "TargetResponseTime",
             "statistic": "p99",
@@ -60,7 +60,7 @@
             "label": "prod"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "TargetResponseTime",
             "statistic": "p99",
@@ -80,10 +80,10 @@
         "title": "Status code do ALB — prod",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_2XX_Count",
             "statistic": "Sum",
@@ -94,7 +94,7 @@
             "label": "2xx"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_4XX_Count",
             "statistic": "Sum",
@@ -105,7 +105,7 @@
             "label": "4xx"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_5XX_Count",
             "statistic": "Sum",
@@ -122,10 +122,10 @@
         "title": "Status code do ALB — release",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_2XX_Count",
             "statistic": "Sum",
@@ -136,7 +136,7 @@
             "label": "2xx"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_4XX_Count",
             "statistic": "Sum",
@@ -147,7 +147,7 @@
             "label": "4xx"
           },
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_5XX_Count",
             "statistic": "Sum",
@@ -164,10 +164,10 @@
         "title": "Issue #85 — Conclusão vs handoff, por fluxo e ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -185,10 +185,10 @@
         "title": "Issue #86 — Erros de integração com o Verde, por chamada e ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -206,10 +206,10 @@
         "title": "Issue #87 — Tokens gastos por dia, por fluxo e ambiente",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -227,10 +227,10 @@
         "title": "Issue #88 — Tentativas esgotadas (RG/CPF/processo), por ambiente",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -248,10 +248,10 @@
         "title": "Issue #89 — Rodadas de desambiguação do orquestrador, por ambiente (média/máx)",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -269,10 +269,10 @@
         "title": "Issue #82 — Handoff por motivo, por ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
@@ -290,10 +290,10 @@
         "title": "Issue #82 — Desfecho dos atendimentos concluídos (agendamento, humano, outro), por fluxo e ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
-        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
         "targets": [
           {
-            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
             "queryMode": "Logs",
             "region": "us-east-1",
             "logGroups": [
