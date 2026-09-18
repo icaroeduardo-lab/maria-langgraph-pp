@@ -1,6 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import type { DadosApenado, DadosProcesso } from "../../shared/types.js";
-import { AnnotationTokensAcumulados } from "../../shared/tokensAcumulados.js";
+import { AnnotationTokensGastos } from "../../shared/tokensAcumulados.js";
 
 export type PessoaPresaStateType = typeof PessoaPresaState.State;
 
@@ -55,10 +55,8 @@ export const PessoaPresaState = Annotation.Root({
   // texto fixo original (ver ia/reescrever.ts) — log estruturado usa isso.
   perguntaAtualViaIA: Annotation<boolean | undefined>,
   perguntaAtualTokensTotal: Annotation<number | undefined>,
-  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35) — ver
-  // shared/tokensAcumulados.ts. tokensGastosTotal == entrada + saída sempre
-  // (issue #69 — discrimina os 2 porque custam diferente no Bedrock).
-  tokensGastosTotal: AnnotationTokensAcumulados(),
-  tokensGastosEntrada: AnnotationTokensAcumulados(),
-  tokensGastosSaida: AnnotationTokensAcumulados(),
+  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35),
+  // discriminando entrada/saída (issue #69) — issue #92 agrupa os 3 num
+  // objeto único em vez de 3 campos soltos. Ver shared/tokensAcumulados.ts.
+  tokensGastos: AnnotationTokensGastos(),
 });
