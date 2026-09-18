@@ -273,7 +273,7 @@ export async function criarAtendimento(
     };
   }
 
-  log.info({ fluxoId, chatId }, "atendimento criado");
+  log.info({ fluxoId, chatId, evento: "atendimento_criado" }, "atendimento criado");
   const resultado = await fluxo.grafo.invoke(dadosConhecidos ?? {}, config);
 
   const interrupt = extrairInterruptDoInvoke(resultado);
@@ -281,15 +281,20 @@ export async function criarAtendimento(
   // na 1ª chamada, sem interrupt nenhum — sem esse branch, esse caso ficava
   // logado como "pergunta enviada" com tudo vazio, escondendo a conclusão
   // das métricas de negócio (handoff por motivo, tokens gastos).
+  //
+  // Issue #90 — `evento` (valor fixo) em vez de só confiar no texto livre
+  // da mensagem pra filtrar/agrupar métrica; `tokensGastosTotal` como nome
+  // ÚNICO de campo de tokens em todo log (antes variava tokensTotal vs
+  // tokensGastosTotal dependendo de qual log).
   if (interrupt) {
-    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensGastosTotal } = resultado as {
       perguntaAtualViaIA?: boolean;
       perguntaAtualTokensTotal?: number;
     };
-    log.info({ fluxoId, chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+    log.info({ fluxoId, chatId, evento: "pergunta_enviada", tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensGastosTotal }, "pergunta enviada");
   } else {
     const { statusFinal, motivoHandoff, tokensGastosTotal } = resultado as ValoresAtendimento;
-    log.info({ fluxoId, chatId, status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
+    log.info({ fluxoId, chatId, evento: "atendimento_finalizado", status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
   }
 
   return {
@@ -447,7 +452,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         const respostaFinal = montarRespostaAtendimento(fluxo, fluxoId, chatId, undefined, valoresFinais);
         return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta", ...respostaFinal });
       }
-      req.log.info({ fluxoId, chatId }, "resposta recebida");
+      req.log.info({ fluxoId, chatId, evento: "resposta_recebida" }, "resposta recebida");
 
       // resume sempre como string crua — pras perguntas sim_nao, a Tykhe
       // manda literalmente "true"/"false" (não texto em português), e o nó
@@ -456,18 +461,21 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const resultado = await fluxo.grafo.invoke(new Command({ resume: body?.resposta ?? "" }), config);
 
       const interrupt = extrairInterruptDoInvoke(resultado);
+      // Issue #90 — `evento` fixo + `tokensGastosTotal` como nome ÚNICO de
+      // campo de tokens (era tokensTotal aqui, tokensGastosTotal no
+      // "atendimento finalizado" — dificultava somar entre os 2 tipos de log).
       if (interrupt) {
-        const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+        const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensGastosTotal } = resultado as {
           perguntaAtualViaIA?: boolean;
           perguntaAtualTokensTotal?: number;
         };
-        req.log.info({ fluxoId, chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+        req.log.info({ fluxoId, chatId, evento: "pergunta_enviada", tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensGastosTotal }, "pergunta enviada");
       } else {
         // Issue #82 — motivoHandoff/tokensGastosTotal agora vão pro log,
         // sem isso não tinha como montar métrica de "handoff por motivo"
         // nem "tokens gastos por dia" via CloudWatch Logs Insights.
         const { statusFinal, motivoHandoff, tokensGastosTotal } = resultado as ValoresAtendimento;
-        req.log.info({ fluxoId, chatId, status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
+        req.log.info({ fluxoId, chatId, evento: "atendimento_finalizado", status: statusFinal ?? "concluido", motivoHandoff, tokensGastosTotal }, "atendimento finalizado");
       }
       return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }
