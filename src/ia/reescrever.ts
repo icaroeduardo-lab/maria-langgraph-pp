@@ -90,15 +90,13 @@ export interface CamposPerguntaPreparada {
   perguntaAtualTexto: string;
   perguntaAtualViaIA: boolean;
   perguntaAtualTokensTotal: number | undefined;
-  // Deltas pros acumuladores do state de cada fluxo (issue #35, entrada/
-  // saída discriminados na issue #69) — 0 quando não gastou nada de verdade
-  // (viaIA:false). Cada fluxo precisa declarar os 3 campos no próprio
-  // Annotation.Root com reducer de soma (ver fluxos/pessoaPresa/state.ts)
-  // pra acumular entre chamadas. tokensGastosTotal == entrada + saída
-  // sempre (soma dos outros 2, não é um valor independente).
-  tokensGastosTotal: number;
-  tokensGastosEntrada: number;
-  tokensGastosSaida: number;
+  // Delta pro acumulador `tokensGastos` do state de cada fluxo (issue #35,
+  // entrada/saída discriminados na issue #69, agrupados num objeto único
+  // na issue #92) — {0,0,0} quando não gastou nada de verdade (viaIA:false).
+  // Cada fluxo precisa declarar o campo no próprio Annotation.Root com
+  // AnnotationTokensGastos() (ver fluxos/pessoaPresa/state.ts) pra acumular
+  // entre chamadas.
+  tokensGastos: { input: number; output: number; total: number };
 }
 
 // Helper compartilhado entre TODOS os fluxos (fluxos/*/graph.ts) — cada
@@ -116,8 +114,6 @@ export async function prepararPergunta(campo: string, textoBase: string): Promis
     perguntaAtualTexto: texto,
     perguntaAtualViaIA: viaIA,
     perguntaAtualTokensTotal: tokensTotal,
-    tokensGastosTotal: tokensTotal ?? 0,
-    tokensGastosEntrada: tokensEntrada ?? 0,
-    tokensGastosSaida: tokensSaida ?? 0,
+    tokensGastos: { input: tokensEntrada ?? 0, output: tokensSaida ?? 0, total: tokensTotal ?? 0 },
   };
 }

@@ -110,10 +110,9 @@ async function pedirLivre(state: PessoaPresaStateType): Promise<Partial<PessoaPr
     ...(extraido.rg !== undefined ? { rg: extraido.rg } : {}),
     ...(extraido.parentesco !== undefined ? { parentesco: extraido.parentesco } : {}),
     // único nó deste fluxo que chama IA fora de prepararPergunta() — soma o
-    // delta manualmente (issue #35, entrada/saída discriminados na #69).
-    tokensGastosTotal: extraido.tokensTotal ?? 0,
-    tokensGastosEntrada: extraido.tokensEntrada ?? 0,
-    tokensGastosSaida: extraido.tokensSaida ?? 0,
+    // delta manualmente (issue #35, entrada/saída discriminados na #69,
+    // agrupados num objeto único na #92).
+    tokensGastos: { input: extraido.tokensEntrada ?? 0, output: extraido.tokensSaida ?? 0, total: extraido.tokensTotal ?? 0 },
   };
 }
 
@@ -340,9 +339,7 @@ export async function pedirParentesco(state: PessoaPresaStateType): Promise<Part
   const { parentesco, tokensTotal, tokensEntrada, tokensSaida } = await classificarParentesco(resposta);
   return {
     parentesco,
-    tokensGastosTotal: tokensTotal ?? 0,
-    tokensGastosEntrada: tokensEntrada ?? 0,
-    tokensGastosSaida: tokensSaida ?? 0,
+    tokensGastos: { input: tokensEntrada ?? 0, output: tokensSaida ?? 0, total: tokensTotal ?? 0 },
   };
 }
 

@@ -1,5 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
-import { AnnotationTokensAcumulados } from "../../shared/tokensAcumulados.js";
+import { AnnotationTokensGastos } from "../../shared/tokensAcumulados.js";
 
 export type PadraoStateType = typeof PadraoState.State;
 
@@ -17,5 +17,5 @@ export const PadraoState = Annotation.Root({
   // mostrando 0 mesmo quando gastou tokens de verdade. Este grafo nunca
   // gera delta próprio (não chama IA) — só recebe o seed do orquestrador e
   // repassa adiante.
-  tokensGastosTotal: AnnotationTokensAcumulados(),
+  tokensGastos: AnnotationTokensGastos(),
 });
