@@ -10,9 +10,21 @@ const { Pool } = pg;
 // com um chatId já usado por OUTRO flowId vira erro explícito (ver
 // registrar()), em vez de dois fluxos pisando no mesmo checkpoint do
 // LangGraph (que é indexado só por thread_id=chatId, sem separar por fluxo).
+// Issue #83 — colunas de desfecho preenchidas na conclusão (concluir()),
+// dado de negócio estruturado pra consulta SQL direta (datasource Postgres
+// no Grafana), sem depender só de CloudWatch Logs Insights (issue #82).
+// Mesmos campos do log "atendimento finalizado" (rotas/atendimentos.ts).
+export interface ConclusaoAtendimento {
+  statusFinal: "concluido" | "handoff_humano";
+  destino?: string;
+  motivoHandoff?: string;
+  tokensGastos?: { input: number; output: number; total: number };
+}
+
 export interface AtendimentosStore {
   registrar(chatId: string, flowId: string): Promise<{ ok: true } | { ok: false; flowIdExistente: string }>;
   buscarFlowId(chatId: string): Promise<string | undefined>;
+  concluir(chatId: string, dados: ConclusaoAtendimento): Promise<void>;
 }
 
 // Sem DATABASE_URL (testes, que não carregam .env) cai pra um Map em
@@ -29,6 +41,7 @@ function criarStoreEmMemoria(): AtendimentosStore {
     async buscarFlowId(chatId) {
       return mapa.get(chatId);
     },
+    async concluir() {},
   };
 }
 
@@ -40,6 +53,22 @@ async function criarStorePostgres(url: string): Promise<AtendimentosStore> {
       flow_id UUID NOT NULL,
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `);
+  // Issue #83 — colunas de desfecho, adicionadas via ALTER (não recriação):
+  // tabela já existe em prod com linhas, CREATE TABLE IF NOT EXISTS não
+  // alcança colunas novas numa tabela já existente. Todas nullable — só
+  // ganham valor em concluir(), continuam NULL enquanto o atendimento está
+  // em andamento (é o que distingue "em andamento" de "concluído" pra quem
+  // consulta via SQL direto).
+  await pool.query(`
+    ALTER TABLE atendimentos
+      ADD COLUMN IF NOT EXISTS concluido_em TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS status_final TEXT,
+      ADD COLUMN IF NOT EXISTS destino TEXT,
+      ADD COLUMN IF NOT EXISTS motivo_handoff TEXT,
+      ADD COLUMN IF NOT EXISTS tokens_entrada INTEGER,
+      ADD COLUMN IF NOT EXISTS tokens_saida INTEGER,
+      ADD COLUMN IF NOT EXISTS tokens_total INTEGER
   `);
   logger.info("[atendimentosDb] tabela 'atendimentos' pronta (Postgres)");
 
@@ -63,6 +92,23 @@ async function criarStorePostgres(url: string): Promise<AtendimentosStore> {
     async buscarFlowId(chatId) {
       const res = await pool.query<{ flow_id: string }>(`SELECT flow_id FROM atendimentos WHERE chat_id = $1`, [chatId]);
       return res.rows[0]?.flow_id;
+    },
+    async concluir(chatId, dados) {
+      await pool.query(
+        `UPDATE atendimentos
+         SET concluido_em = now(), status_final = $2, destino = $3, motivo_handoff = $4,
+             tokens_entrada = $5, tokens_saida = $6, tokens_total = $7
+         WHERE chat_id = $1`,
+        [
+          chatId,
+          dados.statusFinal,
+          dados.destino ?? null,
+          dados.motivoHandoff ?? null,
+          dados.tokensGastos?.input ?? null,
+          dados.tokensGastos?.output ?? null,
+          dados.tokensGastos?.total ?? null,
+        ]
+      );
     },
   };
 }
