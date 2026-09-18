@@ -28,15 +28,15 @@ const respostaOrquestradorSchema = {
     // sumia da resposta só nesta rota, dadosColetados já sumia antes disso
     // também, bug pré-existente na mesma causa).
     dadosColetados: { type: "object", additionalProperties: true },
-    tokensGastosTotal: {
-      type: "number",
-      description: "Soma de todos os tokens de IA gastos nesta conversa (classificação + desambiguação + fluxo final) — só presente quando status:concluido/handoff_humano",
-    },
-    // Mesmo motivo do comentário acima sobre tokensGastosTotal — precisa
+    // Mesmo motivo do comentário acima sobre dadosColetados — precisa
     // declarar aqui ou o fast-json-stringify descarta silenciosamente
-    // (issue #69).
-    tokensGastosEntrada: { type: "number", description: "Parte de tokensGastosTotal referente a tokens de ENTRADA — mesma condição de presença de tokensGastosTotal." },
-    tokensGastosSaida: { type: "number", description: "Parte de tokensGastosTotal referente a tokens de SAÍDA — mesma condição de presença de tokensGastosTotal." },
+    // (issue #69/#92).
+    tokensGastos: {
+      type: "object",
+      properties: { input: { type: "number" }, output: { type: "number" }, total: { type: "number" } },
+      description:
+        "Tokens de IA gastos nesta conversa (classificação + desambiguação + fluxo final), discriminados — só presente quando status:concluido/handoff_humano",
+    },
     flowId: {
       type: "string",
       description:
@@ -124,16 +124,26 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
           ? await grafoOrquestrador.invoke(new Command({ resume: body.resposta }), config)
           : await grafoOrquestrador.invoke({ mensagem: body?.mensagem ?? "" }, config);
 
-      const { tokensGastosRodada, tokensGastosTotalConversa, tokensGastosEntradaTotalConversa, tokensGastosSaidaTotalConversa } = resultado as {
+      const { tokensGastosRodada, tokensGastosConversa, rodada } = resultado as {
         tokensGastosRodada?: number;
-        tokensGastosTotalConversa?: number;
-        tokensGastosEntradaTotalConversa?: number;
-        tokensGastosSaidaTotalConversa?: number;
+        tokensGastosConversa?: { input: number; output: number; total: number };
+        rodada?: number;
       };
 
+      // Issue #90 — `evento` fixo (não só texto livre da mensagem). Issue
+      // #89 — `rodada` agora vai pro log (faltava pra montar o painel de
+      // rodadas de desambiguação até resolver). Issue #92 — `status`/
+      // `destino` NO LOG (não confundir com o campo `status` da resposta
+      // HTTP, que continua igual pra Tykhe) — "concluido" cobre qualquer
+      // desfecho que termina a conversa com o bot, "atendimento_humano" é
+      // o único destino conhecido nesta rota (nunca cria agendamento aqui,
+      // isso só acontece dentro de um fluxo já identificado).
       const interrupt = extrairInterruptDoInvoke(resultado);
       if (interrupt) {
-        req.log.info({ chatId, tipoResposta: interrupt.tipo, tokensTotal: tokensGastosRodada }, "orquestrador: pergunta de desambiguação enviada");
+        req.log.info(
+          { chatId, evento: "orquestrador_pergunta_enviada", status: "em_andamento", tipoResposta: interrupt.tipo, tokensGastosTotal: tokensGastosRodada, rodada },
+          "orquestrador: pergunta de desambiguação enviada"
+        );
         return reply.code(200).send({
           resposta: interrupt.pergunta,
           tipoResposta: interrupt.tipo,
@@ -146,7 +156,10 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       const { statusFinal, flowIdEscolhido } = resultado as { statusFinal?: string; flowIdEscolhido?: string };
 
       if (statusFinal !== "identificado" || !flowIdEscolhido) {
-        req.log.info({ chatId, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo não identificado, handoff_humano direto");
+        req.log.info(
+          { chatId, evento: "orquestrador_finalizado_sem_fluxo", status: "concluido", destino: "atendimento_humano", tokensGastosTotal: tokensGastosRodada, rodada },
+          "orquestrador: fluxo não identificado, handoff_humano direto"
+        );
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
@@ -157,14 +170,20 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
         // buscarFluxo() resolve os dois casos (implementado de verdade ou
         // grafo padrão, issue #21). Cair aqui é inconsistência real entre os
         // catálogos, não um caminho esperado.
-        req.log.error({ chatId, flowId: flowIdEscolhido }, "orquestrador: flowId identificado não existe em nenhum catálogo (inconsistência)");
+        req.log.error(
+          { chatId, flowId: flowIdEscolhido, evento: "orquestrador_inconsistencia", status: "concluido", destino: "atendimento_humano" },
+          "orquestrador: flowId identificado não existe em nenhum catálogo (inconsistência)"
+        );
         return reply.code(200).send(respostaHandoffSemFluxo(chatId, "nao_identificado"));
       }
 
       // fluxo pode ser um implementado de verdade OU o grafo padrão
       // compartilhado (fluxo planejado sem código ainda, issue #21) — dali
       // em diante o tratamento é IDÊNTICO nos 2 casos, sem branch especial.
-      req.log.info({ chatId, flowId: flowIdEscolhido, tokensTotal: tokensGastosRodada }, "orquestrador: fluxo identificado");
+      // Sem status/destino aqui de propósito — isso não é uma CONCLUSÃO,
+      // é roteamento; o fluxo escolhido vai gerar seu PRÓPRIO log de
+      // "atendimento finalizado" (rotas/atendimentos.ts) quando terminar.
+      req.log.info({ chatId, evento: "orquestrador_fluxo_identificado", flowId: flowIdEscolhido, tokensGastosTotal: tokensGastosRodada, rodada }, "orquestrador: fluxo identificado");
       // Repassa o total gasto ANTES de identificar o fluxo (classificação +
       // desambiguação) como ponto de partida do acumulador do fluxo
       // escolhido — sem isso o total final do chat perdia o custo da
@@ -173,9 +192,7 @@ export function registrarRotaOrquestrador(app: FastifyInstance): void {
       // pro state inicial do grafo).
       const dadosConhecidosComTokens = {
         ...(body?.dadosConhecidos ?? {}),
-        tokensGastosTotal: tokensGastosTotalConversa ?? 0,
-        tokensGastosEntrada: tokensGastosEntradaTotalConversa ?? 0,
-        tokensGastosSaida: tokensGastosSaidaTotalConversa ?? 0,
+        tokensGastos: tokensGastosConversa ?? { input: 0, output: 0, total: 0 },
       };
       const resultadoAtendimento = await criarAtendimento(fluxo, flowIdEscolhido, chatId, dadosConhecidosComTokens, req.log);
       if (resultadoAtendimento.statusCode !== 200) return reply.code(resultadoAtendimento.statusCode).send(resultadoAtendimento.corpo);

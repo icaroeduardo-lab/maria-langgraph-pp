@@ -27,6 +27,20 @@ function respostaEhSim(resposta: string): boolean {
   return normalizado === "true" || normalizado === "sim" || normalizado === "s" || normalizado === "yes";
 }
 
+// Issue #77 — reconhece CPF/processo digitado direto na pergunta "quer
+// tentar de novo?" (em vez de "Sim") pelo FORMATO, mesmo padrão de
+// rgFormatoValido em pessoaPresa/graph.ts (issue #54). Sem isso,
+// respostaEhSim(resposta) devolveria false pra um CPF/processo digitado
+// direto, e o fluxo entenderia como "não quer tentar de novo" — pior que
+// não ter retry, engana quem já tentou se corrigir.
+function cpfFormatoValido(valor: string): boolean {
+  return valor.replace(/\D/g, "").length === 11;
+}
+
+function numeroProcessoFormatoValido(valor: string): boolean {
+  return valor.replace(/\D/g, "").length === 20;
+}
+
 // Gate de elegibilidade — primeira pergunta do fluxo (decisão de design:
 // perguntar isso ANTES de processo, pra não gastar pergunta à toa quando a
 // resposta for "não").
@@ -84,7 +98,45 @@ async function pedirNumeroProcesso(state: ViolenciaDomesticaStateType): Promise<
 
 async function consultarProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
   const dados = await consultarProcessoVerde(state.numeroProcesso ?? "");
-  return { dadosProcesso: dados };
+  return { dadosProcesso: dados, tentativasProcesso: (state.tentativasProcesso ?? 0) + 1 };
+}
+
+// Issue #75 — diferente do RG/CPF, processo é só informativo: esgotar as
+// tentativas (ou desistir) NUNCA vira handoff, só segue o fluxo sem o
+// número confirmado. "temRO" nos 2 casos de desistência (silenciosa na 3ª
+// falha, ou depois de responder "não" quer tentar de novo).
+function depoisDeConsultarProcesso(state: ViolenciaDomesticaStateType): "temRO" | "tentarNovamente" {
+  if (state.dadosProcesso?.encontrado) return "temRO";
+  return (state.tentativasProcesso ?? 0) >= 3 ? "temRO" : "tentarNovamente";
+}
+
+async function prepararPerguntaTentarNovamenteProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  return prepararPergunta(
+    "tentarNovamenteProcesso",
+    `Não encontrei esse número de processo (tentativa ${state.tentativasProcesso ?? 1} de 3). Quer tentar de novo?`
+  );
+}
+
+async function perguntaTentarNovamenteProcesso(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const resposta = interrupt<Pergunta, string>({
+    pergunta:
+      state.perguntaAtualTexto ??
+      `Não encontrei esse número de processo (tentativa ${state.tentativasProcesso ?? 1} de 3). Quer tentar de novo?`,
+    tipo: "sim_nao",
+    opcoes: ["Sim", "Não"],
+  });
+  // Issue #77 — número de processo digitado direto em vez de "Sim" já é
+  // aceito como o novo valor, pulando pedirNumeroProcesso (vai direto pra
+  // consultarProcesso).
+  if (numeroProcessoFormatoValido(resposta)) {
+    return { querTentarNovamenteProcesso: true, numeroProcesso: resposta, digitouProcessoDireto: true };
+  }
+  return { querTentarNovamenteProcesso: respostaEhSim(resposta), digitouProcessoDireto: false };
+}
+
+function depoisDePerguntaTentarProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "temRO" | "consultarProcesso" {
+  if (!state.querTentarNovamenteProcesso) return "temRO";
+  return state.digitouProcessoDireto ? "consultarProcesso" : "pedirNumeroProcesso";
 }
 
 async function prepararPerguntaTemRO(): Promise<Partial<ViolenciaDomesticaStateType>> {
@@ -199,11 +251,17 @@ async function perguntaTentarNovamenteCpf(state: ViolenciaDomesticaStateType): P
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { querTentarNovamenteCpf: respostaEhSim(resposta) };
+  // Issue #77 — CPF digitado direto em vez de "Sim" já é aceito como o novo
+  // valor, pulando pedirCpf (vai direto pra consultarPessoa).
+  if (cpfFormatoValido(resposta)) {
+    return { querTentarNovamenteCpf: true, cpf: resposta, digitouCpfDireto: true };
+  }
+  return { querTentarNovamenteCpf: respostaEhSim(resposta), digitouCpfDireto: false };
 }
 
-function depoisDePerguntaTentarCpf(state: ViolenciaDomesticaStateType): "pedirCpf" | "cpfEsgotado" {
-  return state.querTentarNovamenteCpf ? "pedirCpf" : "cpfEsgotado";
+function depoisDePerguntaTentarCpf(state: ViolenciaDomesticaStateType): "pedirCpf" | "cpfEsgotado" | "consultarPessoa" {
+  if (!state.querTentarNovamenteCpf) return "cpfEsgotado";
+  return state.digitouCpfDireto ? "consultarPessoa" : "pedirCpf";
 }
 
 // Esgotou as 3 tentativas (ou respondeu "não" quer tentar de novo) — motivo
@@ -282,6 +340,8 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addNode("prepararPerguntaNumeroProcesso", prepararPerguntaNumeroProcesso)
   .addNode("pedirNumeroProcesso", pedirNumeroProcesso)
   .addNode("consultarProcesso", consultarProcesso)
+  .addNode("prepararPerguntaTentarNovamenteProcesso", prepararPerguntaTentarNovamenteProcesso)
+  .addNode("perguntaTentarNovamenteProcesso", perguntaTentarNovamenteProcesso)
   .addNode("prepararPerguntaTemRO", prepararPerguntaTemRO)
   .addNode("pedirTemRO", pedirTemRO)
   .addNode("prepararPerguntaCpf", prepararPerguntaCpf)
@@ -310,7 +370,18 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   })
   .addEdge("prepararPerguntaNumeroProcesso", "pedirNumeroProcesso")
   .addEdge("pedirNumeroProcesso", "consultarProcesso")
-  .addEdge("consultarProcesso", "prepararPerguntaTemRO")
+  .addConditionalEdges("consultarProcesso", depoisDeConsultarProcesso, {
+    temRO: "prepararPerguntaTemRO",
+    tentarNovamente: "prepararPerguntaTentarNovamenteProcesso",
+  })
+  .addEdge("prepararPerguntaTentarNovamenteProcesso", "perguntaTentarNovamenteProcesso")
+  .addConditionalEdges("perguntaTentarNovamenteProcesso", depoisDePerguntaTentarProcesso, {
+    pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",
+    temRO: "prepararPerguntaTemRO",
+    // processo digitado direto na pergunta de retry (issue #77) — pula
+    // prepararPerguntaNumeroProcesso, consulta o Verde de novo direto.
+    consultarProcesso: "consultarProcesso",
+  })
   .addEdge("prepararPerguntaTemRO", "pedirTemRO")
   .addEdge("pedirTemRO", "prepararPerguntaCpf")
   .addEdge("prepararPerguntaCpf", "pedirCpf")
@@ -328,6 +399,9 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addConditionalEdges("perguntaTentarNovamenteCpf", depoisDePerguntaTentarCpf, {
     pedirCpf: "prepararPerguntaCpf",
     cpfEsgotado: "cpfEsgotado",
+    // CPF digitado direto na pergunta de retry (issue #77) — pula
+    // prepararPerguntaCpf, consulta o Verde de novo direto.
+    consultarPessoa: "consultarPessoa",
   })
   .addEdge("cpfEsgotado", END)
   .addConditionalEdges("criarEncaminhamento", depoisDeCriarEncaminhamento, {

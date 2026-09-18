@@ -57,15 +57,13 @@ async function classificar(state: OrquestradorStateType): Promise<Partial<Orques
   const porId = new Map(catalogoCompleto.map((c) => [c.id, c]));
   const plausiveis = ids.map((id) => porId.get(id)).filter((c): c is CandidatoOrquestrador => c !== undefined);
   // Sempre 1º nó da rodada — sobrescreve (não soma) de propósito, é o
-  // início da contagem desta rodada (issue #34). tokensGastosTotalConversa
-  // tem reducer de soma (issue #35, entrada/saída discriminados na #69) —
-  // aqui é só o DELTA desta chamada.
+  // início da contagem desta rodada (issue #34). tokensGastosConversa
+  // tem reducer de soma (issue #35, entrada/saída discriminados na #69,
+  // agrupados num objeto único na #92) — aqui é só o DELTA desta chamada.
   return {
     candidatosRestantes: plausiveis,
     tokensGastosRodada: tokensTotal,
-    tokensGastosTotalConversa: tokensTotal ?? 0,
-    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
-    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
+    tokensGastosConversa: { input: tokensEntrada ?? 0, output: tokensSaida ?? 0, total: tokensTotal ?? 0 },
   };
 }
 
@@ -135,9 +133,7 @@ async function prepararPerguntaDesambiguacao(state: OrquestradorStateType): Prom
   return {
     perguntaAtualTexto: pergunta,
     tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
-    tokensGastosTotalConversa: tokensTotal ?? 0,
-    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
-    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
+    tokensGastosConversa: { input: tokensEntrada ?? 0, output: tokensSaida ?? 0, total: tokensTotal ?? 0 },
   };
 }
 
@@ -173,9 +169,7 @@ async function pedirDesambiguacao(state: OrquestradorStateType): Promise<Partial
     ultimaResposta: resposta,
     rodada: novaRodada,
     tokensGastosRodada: somarTokens(state.tokensGastosRodada, tokensTotal),
-    tokensGastosTotalConversa: tokensTotal ?? 0,
-    tokensGastosEntradaTotalConversa: tokensEntrada ?? 0,
-    tokensGastosSaidaTotalConversa: tokensSaida ?? 0,
+    tokensGastosConversa: { input: tokensEntrada ?? 0, output: tokensSaida ?? 0, total: tokensTotal ?? 0 },
   };
 }
 

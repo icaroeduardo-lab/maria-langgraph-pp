@@ -1,0 +1,209 @@
+{
+  "dashboard": {
+    "title": "Maria — Observabilidade",
+    "tags": ["maria-langgraph-pp"],
+    "timezone": "browser",
+    "time": { "from": "now-24h", "to": "now" },
+    "schemaVersion": 39,
+    "panels": [
+      {
+        "id": 1,
+        "title": "CPU dos serviços ECS (%)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ECS",
+            "metricName": "CPUUtilization",
+            "statistic": "Average",
+            "dimensions": { "ClusterName": "maria-langgraph-pp", "ServiceName": "api" },
+            "region": "us-east-1",
+            "refId": "A",
+            "queryMode": "Metrics",
+            "label": "prod"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ECS",
+            "metricName": "CPUUtilization",
+            "statistic": "Average",
+            "dimensions": { "ClusterName": "maria-langgraph-pp", "ServiceName": "api-release" },
+            "region": "us-east-1",
+            "refId": "B",
+            "queryMode": "Metrics",
+            "label": "release"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Latência do ALB (p99, ms)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "TargetResponseTime",
+            "statistic": "p99",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "region": "us-east-1",
+            "refId": "A",
+            "queryMode": "Metrics"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Requisições por status code do ALB",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_2XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "region": "us-east-1",
+            "refId": "A",
+            "queryMode": "Metrics",
+            "label": "2xx"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_4XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "region": "us-east-1",
+            "refId": "B",
+            "queryMode": "Metrics",
+            "label": "4xx"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_5XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "region": "us-east-1",
+            "refId": "C",
+            "queryMode": "Metrics",
+            "label": "5xx"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Issue #85 — Conclusão vs handoff, por fluxo",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields fluxoId, motivoHandoff\n| filter evento = \"atendimento_finalizado\"\n| stats count(*) as total by fluxoId, ispresent(motivoHandoff) as ehHandoff",
+            "statsGroups": ["fluxoId", "ehHandoff"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Issue #86 — Erros de integração com o Verde, por chamada",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields chamada, resultado, duracaoMs\n| filter evento = \"verde_chamada\"\n| stats count(*) as total, avg(duracaoMs) as latenciaMediaMs by chamada, resultado",
+            "statsGroups": ["chamada", "resultado"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Issue #87 — Tokens gastos por dia, por fluxo",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields fluxoId, tokensGastos.total as tokensTotal\n| filter evento = \"atendimento_finalizado\"\n| stats sum(tokensTotal) as tokensPorDia by bin(1d), fluxoId",
+            "statsGroups": ["fluxoId"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Issue #88 — Tentativas esgotadas (RG/CPF/processo)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields motivoHandoff\n| filter evento = \"atendimento_finalizado\" and (motivoHandoff = \"rg_nao_encontrado\" or motivoHandoff = \"cpf_nao_encontrado\")\n| stats count(*) as total by bin(1d), motivoHandoff",
+            "statsGroups": ["motivoHandoff"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Issue #89 — Rodadas de desambiguação do orquestrador (média/máx)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields rodada\n| filter evento = \"orquestrador_fluxo_identificado\" or evento = \"orquestrador_finalizado_sem_fluxo\"\n| stats avg(rodada) as mediaRodadas, max(rodada) as maxRodadas by bin(1d)",
+            "statsGroups": [],
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

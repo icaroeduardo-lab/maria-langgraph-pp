@@ -1,8 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { Command } from "@langchain/langgraph";
-import { buscarFluxo, type FluxoConfig } from "../fluxos/index.js";
+import { buscarFluxo, ID_VIOLENCIA_DOMESTICA, type FluxoConfig } from "../fluxos/index.js";
 import { obterAtendimentosStore } from "../shared/atendimentosDb.js";
+
+// Issue #92 — SÓ no log interno (observabilidade), não no campo `status` da
+// resposta HTTP (esse continua exatamente como sempre foi, contrato com a
+// Tykhe intacto). "concluido" aqui cobre TANTO o statusFinal "concluido"
+// QUANTO "handoff_humano" — dos 2 jeitos a conversa com o bot terminou;
+// `destino` é quem diz o que aconteceu de fato. Mapeamento aberto: só
+// violência doméstica tem um "agendamento" real hoje (encaminhamento
+// criado no Verde) — outros fluxos concluindo com sucesso ainda não têm
+// destino conhecido (fica ausente até algum fluxo novo precisar de um).
+function destinoDoLog(fluxoId: string, statusFinal: string | undefined): string | undefined {
+  if (statusFinal === "handoff_humano") return "atendimento_humano";
+  if (fluxoId === ID_VIOLENCIA_DOMESTICA) return "agendamento";
+  return undefined;
+}
 
 export interface InterruptValue {
   pergunta: string;
@@ -38,15 +52,11 @@ export interface RespostaAtendimento {
   dadosColetados: DadosColetados;
   // Só presente quando status:concluido/handoff_humano (issue #35) — soma
   // de TODOS os tokens de IA gastos nesta conversa (fluxos/*/state.ts,
-  // campo tokensGastosTotal com reducer de soma). 0 quando nenhuma chamada
-  // de IA rodou de verdade, nunca ausente/undefined nesse caso.
-  tokensGastosTotal?: number;
-  // Discriminação de entrada/saída (issue #69) — entrada != saída em preço
-  // no Bedrock, tokensGastosTotal sozinho não dá pra calcular custo real.
-  // tokensGastosEntrada + tokensGastosSaida == tokensGastosTotal sempre.
-  // Mesma condição de presença de tokensGastosTotal.
-  tokensGastosEntrada?: number;
-  tokensGastosSaida?: number;
+  // campo tokensGastos com reducer de soma), discriminando entrada/saída
+  // (issue #69) num objeto único (issue #92 — substitui os 3 campos soltos
+  // anteriores). {0,0,0} quando nenhuma chamada de IA rodou de verdade,
+  // nunca ausente/undefined nesse caso.
+  tokensGastos?: { input: number; output: number; total: number };
   _links: Links;
 }
 
@@ -54,9 +64,7 @@ type ValoresAtendimento = Record<string, unknown> & {
   statusFinal?: string;
   mensagemFinal?: string;
   cpf?: string;
-  tokensGastosTotal?: number;
-  tokensGastosEntrada?: number;
-  tokensGastosSaida?: number;
+  tokensGastos?: { input: number; output: number; total: number };
 };
 
 function montarDadosColetados(values: ValoresAtendimento): DadosColetados {
@@ -134,17 +142,15 @@ const respostaAtendimentoSchema = {
       properties: { cpf: { type: "string" } },
       description: "Dados cross-fluxo já coletados (ex: CPF) — útil pra chamar Verde direto sem re-perguntar",
     },
-    tokensGastosTotal: {
-      type: "number",
-      description: "Soma de todos os tokens de IA gastos nesta conversa — só presente quando status:concluido/handoff_humano",
-    },
-    tokensGastosEntrada: {
-      type: "number",
-      description: "Parte de tokensGastosTotal referente a tokens de ENTRADA — entrada e saída custam diferente no Bedrock. Mesma condição de presença de tokensGastosTotal.",
-    },
-    tokensGastosSaida: {
-      type: "number",
-      description: "Parte de tokensGastosTotal referente a tokens de SAÍDA. Mesma condição de presença de tokensGastosTotal.",
+    tokensGastos: {
+      type: "object",
+      properties: {
+        input: { type: "number" },
+        output: { type: "number" },
+        total: { type: "number" },
+      },
+      description:
+        "Tokens de IA gastos nesta conversa, discriminados (issue #69) — entrada e saída custam diferente no Bedrock. Só presente quando status:concluido/handoff_humano.",
     },
     _links: linksSchema,
   },
@@ -203,11 +209,10 @@ function montarRespostaAtendimento(
     flowId: fluxoId,
     metadados,
     dadosColetados,
-    // 0 (não undefined) quando nenhuma chamada de IA rodou de verdade
-    // nesta conversa — issue #35 (entrada/saída discriminados na #69).
-    tokensGastosTotal: values.tokensGastosTotal ?? 0,
-    tokensGastosEntrada: values.tokensGastosEntrada ?? 0,
-    tokensGastosSaida: values.tokensGastosSaida ?? 0,
+    // {0,0,0} (não undefined) quando nenhuma chamada de IA rodou de verdade
+    // nesta conversa — issue #35 (entrada/saída discriminados na #69,
+    // agrupados num objeto único na #92).
+    tokensGastos: values.tokensGastos ?? { input: 0, output: 0, total: 0 },
     _links: montarLinks(chatId, status),
   };
 }
@@ -273,15 +278,34 @@ export async function criarAtendimento(
     };
   }
 
-  log.info({ fluxoId, chatId }, "atendimento criado");
+  log.info({ fluxoId, chatId, evento: "atendimento_criado" }, "atendimento criado");
   const resultado = await fluxo.grafo.invoke(dadosConhecidos ?? {}, config);
 
   const interrupt = extrairInterruptDoInvoke(resultado);
-  const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
-    perguntaAtualViaIA?: boolean;
-    perguntaAtualTokensTotal?: number;
-  };
-  log.info({ fluxoId, chatId, tipoResposta: interrupt?.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+  // Issue #82 — grafo padrão (fluxo planejado, issue #21) pode concluir JÁ
+  // na 1ª chamada, sem interrupt nenhum — sem esse branch, esse caso ficava
+  // logado como "pergunta enviada" com tudo vazio, escondendo a conclusão
+  // das métricas de negócio (handoff por motivo, tokens gastos).
+  //
+  // Issue #90 — `evento` (valor fixo) em vez de só confiar no texto livre
+  // da mensagem pra filtrar/agrupar métrica. Issue #92 — `tokensGastos`
+  // como objeto único; `status`/`destino` NO LOG (não confundir com o
+  // campo `status` da resposta HTTP, que continua igual pra Tykhe) —
+  // "concluido" aqui cobre handoff_humano também (a conversa terminou dos
+  // 2 jeitos), `destino` diz o que aconteceu de fato.
+  if (interrupt) {
+    const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensGastosTotal } = resultado as {
+      perguntaAtualViaIA?: boolean;
+      perguntaAtualTokensTotal?: number;
+    };
+    log.info({ fluxoId, chatId, evento: "pergunta_enviada", status: "em_andamento", tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensGastosTotal }, "pergunta enviada");
+  } else {
+    const { statusFinal, motivoHandoff, tokensGastos } = resultado as ValoresAtendimento;
+    log.info(
+      { fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino: destinoDoLog(fluxoId, statusFinal), motivoHandoff, tokensGastos },
+      "atendimento finalizado"
+    );
+  }
 
   return {
     statusCode: 200,
@@ -438,7 +462,7 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         const respostaFinal = montarRespostaAtendimento(fluxo, fluxoId, chatId, undefined, valoresFinais);
         return reply.code(409).send({ erro: "atendimento já foi concluído — nada esperando resposta", ...respostaFinal });
       }
-      req.log.info({ fluxoId, chatId }, "resposta recebida");
+      req.log.info({ fluxoId, chatId, evento: "resposta_recebida" }, "resposta recebida");
 
       // resume sempre como string crua — pras perguntas sim_nao, a Tykhe
       // manda literalmente "true"/"false" (não texto em português), e o nó
@@ -447,15 +471,27 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
       const resultado = await fluxo.grafo.invoke(new Command({ resume: body?.resposta ?? "" }), config);
 
       const interrupt = extrairInterruptDoInvoke(resultado);
+      // Issue #90 — `evento` fixo. Issue #92 — `tokensGastos` como objeto
+      // único; `status`/`destino` NO LOG (não confundir com o campo
+      // `status` da resposta HTTP, que continua igual pra Tykhe).
       if (interrupt) {
-        const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensTotal } = resultado as {
+        const { perguntaAtualViaIA: viaIA, perguntaAtualTokensTotal: tokensGastosTotal } = resultado as {
           perguntaAtualViaIA?: boolean;
           perguntaAtualTokensTotal?: number;
         };
-        req.log.info({ fluxoId, chatId, tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensTotal }, "pergunta enviada");
+        req.log.info(
+          { fluxoId, chatId, evento: "pergunta_enviada", status: "em_andamento", tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensGastosTotal },
+          "pergunta enviada"
+        );
       } else {
-        const status = (resultado as ValoresAtendimento).statusFinal ?? "concluido";
-        req.log.info({ fluxoId, chatId, status }, "atendimento finalizado");
+        // Issue #82 — motivoHandoff/tokensGastos agora vão pro log, sem
+        // isso não tinha como montar métrica de "handoff por motivo" nem
+        // "tokens gastos por dia" via CloudWatch Logs Insights.
+        const { statusFinal, motivoHandoff, tokensGastos } = resultado as ValoresAtendimento;
+        req.log.info(
+          { fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino: destinoDoLog(fluxoId, statusFinal), motivoHandoff, tokensGastos },
+          "atendimento finalizado"
+        );
       }
       return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }

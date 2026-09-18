@@ -1,6 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import type { DadosPessoa, DadosProcesso, OrgaosViolenciaDomestica } from "../../shared/types.js";
-import { AnnotationTokensAcumulados } from "../../shared/tokensAcumulados.js";
+import { AnnotationTokensGastos } from "../../shared/tokensAcumulados.js";
 
 export type ViolenciaDomesticaStateType = typeof ViolenciaDomesticaState.State;
 
@@ -11,6 +11,14 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // consulta informativa (não trava o fluxo) — mesmo padrão de
   // fluxos/pessoaPresa/state.ts.
   dadosProcesso: Annotation<DadosProcesso | undefined>,
+  // Issue #75 — até 3 tentativas se o processo não for encontrado, mesmo
+  // padrão de tentativasCpf/tentativasRg. Diferente de CPF/RG: desistir
+  // NÃO vira handoff (processo é só informativo) — só segue o fluxo sem
+  // o número confirmado.
+  tentativasProcesso: Annotation<number | undefined>,
+  querTentarNovamenteProcesso: Annotation<boolean | undefined>,
+  // Issue #77 — mesmo racional de digitouCpfDireto, pro número de processo.
+  digitouProcessoDireto: Annotation<boolean | undefined>,
   temRegistroOcorrencia: Annotation<boolean | undefined>,
   // vem pronto no `dadosConhecidos` do POST /atendimentos (contrato Tykhe:
   // { cpf, idPessoa, nome, email }) — ver rotas/atendimentos.ts. Bypass
@@ -23,6 +31,10 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // mesmo padrão de tentativasRg em pessoaPresa/state.ts.
   tentativasCpf: Annotation<number | undefined>,
   querTentarNovamenteCpf: Annotation<boolean | undefined>,
+  // Issue #77 — CPF digitado direto na pergunta "quer tentar de novo?" (em
+  // vez de "Sim") já é reconhecido pelo formato, mesmo padrão de
+  // digitouRgDireto em pessoaPresa/state.ts (issue #54).
+  digitouCpfDireto: Annotation<boolean | undefined>,
   // ids de plantão(ões) vigente(s) agora (consultarPlantaoVigente) — vazio
   // = fora de horário de plantão, usa consulta de órgão normal. Não vazio =
   // usa consultarOrgaosPlantaoViolenciaDomestica em vez da normal.
@@ -55,10 +67,8 @@ export const ViolenciaDomesticaState = Annotation.Root({
   perguntaAtualTexto: Annotation<string | undefined>,
   perguntaAtualViaIA: Annotation<boolean | undefined>,
   perguntaAtualTokensTotal: Annotation<number | undefined>,
-  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35) — ver
-  // shared/tokensAcumulados.ts. tokensGastosTotal == entrada + saída sempre
-  // (issue #69 — discrimina os 2 porque custam diferente no Bedrock).
-  tokensGastosTotal: AnnotationTokensAcumulados(),
-  tokensGastosEntrada: AnnotationTokensAcumulados(),
-  tokensGastosSaida: AnnotationTokensAcumulados(),
+  // Soma de TODOS os tokens gastos com IA nesta conversa (issue #35),
+  // discriminando entrada/saída (issue #69) — issue #92 agrupa os 3 num
+  // objeto único em vez de 3 campos soltos. Ver shared/tokensAcumulados.ts.
+  tokensGastos: AnnotationTokensGastos(),
 });

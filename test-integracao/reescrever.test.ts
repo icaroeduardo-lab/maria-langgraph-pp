@@ -35,7 +35,7 @@ test("reescreverPergunta chama o Bedrock de verdade quando NODE_ENV != test e RE
 // prepararPergunta (helper usado por TODOS os fluxos, ver fluxos/*/graph.ts)
 // é quem repassa os deltas pro state — issue #69 discriminou entrada/saída
 // aqui, não só dentro de reescreverPergunta.
-test("prepararPergunta repassa tokensGastosEntrada/tokensGastosSaida (issue #69)", async () => {
+test("prepararPergunta repassa tokensGastos {input,output,total} (issue #69/#92)", async () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalReescreverIa = process.env.REESCREVER_IA;
   process.env.NODE_ENV = "development";
@@ -43,10 +43,10 @@ test("prepararPergunta repassa tokensGastosEntrada/tokensGastosSaida (issue #69)
   try {
     const preparado = await prepararPergunta("parentesco", "Qual seu parentesco com a pessoa presa?");
     assert.equal(preparado.perguntaAtualViaIA, true);
-    assert.ok(preparado.tokensGastosTotal > 0);
-    assert.ok(preparado.tokensGastosEntrada > 0, "esperava tokensGastosEntrada > 0");
-    assert.ok(preparado.tokensGastosSaida > 0, "esperava tokensGastosSaida > 0");
-    assert.equal(preparado.tokensGastosEntrada + preparado.tokensGastosSaida, preparado.tokensGastosTotal, "entrada + saída deveria bater com o total");
+    assert.ok(preparado.tokensGastos.total > 0);
+    assert.ok(preparado.tokensGastos.input > 0, "esperava tokensGastos.input > 0");
+    assert.ok(preparado.tokensGastos.output > 0, "esperava tokensGastos.output > 0");
+    assert.equal(preparado.tokensGastos.input + preparado.tokensGastos.output, preparado.tokensGastos.total, "entrada + saída deveria bater com o total");
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
     process.env.REESCREVER_IA = originalReescreverIa;
