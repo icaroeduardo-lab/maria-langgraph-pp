@@ -1,5 +1,6 @@
 [
   {
+    "uid": "cfymyjbqlq6f4b",
     "title": "Sem host saudável (prod)",
     "ruleGroup": "saude-operacional",
     "folderUID": "ffymyi5yquw3ke",
@@ -10,7 +11,10 @@
     "data": [
       {
         "refId": "A",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "ffymvx5sukwlce",
         "model": {
           "namespace": "AWS/ApplicationELB",
@@ -27,16 +31,47 @@
           "maxDataPoints": 100
         }
       },
-      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "last", "expression": "A", "refId": "B" } },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
       {
         "refId": "C",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "__expr__",
-        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "lt", "params": [1] } }], "refId": "C" }
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "lt",
+                "params": [
+                  1
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
       }
     ]
   },
   {
+    "uid": "ffynbgahbls00f",
     "title": "Sem host saudável (release)",
     "ruleGroup": "saude-operacional",
     "folderUID": "ffymyi5yquw3ke",
@@ -47,7 +82,10 @@
     "data": [
       {
         "refId": "A",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "ffymvx5sukwlce",
         "model": {
           "namespace": "AWS/ApplicationELB",
@@ -64,16 +102,47 @@
           "maxDataPoints": 100
         }
       },
-      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "last", "expression": "A", "refId": "B" } },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
       {
         "refId": "C",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "__expr__",
-        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "lt", "params": [1] } }], "refId": "C" }
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "lt",
+                "params": [
+                  1
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
       }
     ]
   },
   {
+    "uid": "afymykd4iilmoa",
     "title": "Taxa de erro 5xx alta (prod)",
     "ruleGroup": "saude-operacional",
     "folderUID": "ffymyi5yquw3ke",
@@ -84,7 +153,10 @@
     "data": [
       {
         "refId": "A",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "ffymvx5sukwlce",
         "model": {
           "namespace": "AWS/ApplicationELB",
@@ -101,16 +173,47 @@
           "maxDataPoints": 100
         }
       },
-      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "sum", "expression": "A", "refId": "B" } },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "sum",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
       {
         "refId": "C",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "__expr__",
-        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "gt", "params": [10] } }], "refId": "C" }
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  10
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
       }
     ]
   },
   {
+    "uid": "bfynbgbl4zif4f",
     "title": "Taxa de erro 5xx alta (release)",
     "ruleGroup": "saude-operacional",
     "folderUID": "ffymyi5yquw3ke",
@@ -121,7 +224,10 @@
     "data": [
       {
         "refId": "A",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "ffymvx5sukwlce",
         "model": {
           "namespace": "AWS/ApplicationELB",
@@ -138,12 +244,326 @@
           "maxDataPoints": 100
         }
       },
-      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "sum", "expression": "A", "refId": "B" } },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "sum",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
       {
         "refId": "C",
-        "relativeTimeRange": { "from": 300, "to": 0 },
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
         "datasourceUid": "__expr__",
-        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "gt", "params": [10] } }], "refId": "C" }
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  10
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
+      }
+    ]
+  },
+  {
+    "uid": "bfyno5vcwjksgc",
+    "title": "CPU alta no serviço ECS (prod)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": {
+            "ClusterName": "maria-langgraph-pp",
+            "ServiceName": "api"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
+      {
+        "refId": "C",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  80
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
+      }
+    ]
+  },
+  {
+    "uid": "ffyno5wdvjh1ce",
+    "title": "CPU alta no serviço ECS (release)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": {
+            "ClusterName": "maria-langgraph-pp",
+            "ServiceName": "api-release"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
+      {
+        "refId": "C",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  80
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
+      }
+    ]
+  },
+  {
+    "uid": "afyno6z9tmtj4b",
+    "title": "Latência p99 alta do ALB (prod)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p99",
+          "dimensions": {
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
+      {
+        "refId": "C",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  3
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
+      }
+    ]
+  },
+  {
+    "uid": "efyno70dpigaoc",
+    "title": "Latência p99 alta do ALB (release)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p99",
+          "dimensions": {
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "reduce",
+          "reducer": "last",
+          "expression": "A",
+          "refId": "B"
+        }
+      },
+      {
+        "refId": "C",
+        "relativeTimeRange": {
+          "from": 300,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "type": "threshold",
+          "expression": "B",
+          "conditions": [
+            {
+              "evaluator": {
+                "type": "gt",
+                "params": [
+                  3
+                ]
+              }
+            }
+          ],
+          "refId": "C"
+        }
       }
     ]
   },
