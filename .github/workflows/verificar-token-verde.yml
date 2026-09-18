@@ -1,0 +1,60 @@
+name: Verificar expiração do token Verde
+
+# Issue #113 — VERDE_JWT_TOKEN é temporário (emitido como app "Tykhe" pelo
+# Verde), com data de expiração conhecida. Sem esse workflow, só se descobre
+# que expirou quando as chamadas reais começam a falhar em produção (achado
+# ao vivo 2026-09-18, token de homolog já tinha expirado sem ninguém notar).
+# Falha proposital (exit 1) quando faltam poucos dias — GitHub notifica por
+# e-mail quem tem notificação de Actions ativada quando um workflow agendado
+# falha, sem precisar de nenhum canal novo.
+on:
+  schedule:
+    - cron: "0 12 * * *" # todo dia, meio-dia UTC
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # necessário pro OIDC (aws-actions/configure-aws-credentials)
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # 1 ambiente com token vencendo não deve esconder o outro
+      matrix:
+        ambiente: [prod, release]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Checar expiração do VERDE_JWT_TOKEN
+        env:
+          AMBIENTE: ${{ matrix.ambiente }}
+        run: |
+          SECRET_ID="maria-langgraph-pp-${AMBIENTE}/app"
+          export VERDE_JWT_TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id "$SECRET_ID" --region us-east-1 \
+            --query SecretString --output text \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['VERDE_JWT_TOKEN'])")
+          python3 - <<'EOF'
+          import base64, json, os, sys, time
+
+          ambiente = os.environ["AMBIENTE"]
+          token = os.environ["VERDE_JWT_TOKEN"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          dados = json.loads(base64.urlsafe_b64decode(payload))
+          exp = dados.get("exp")
+
+          if exp is None:
+              print(f"[{ambiente}] token sem campo 'exp' — não dá pra checar expiração")
+              sys.exit(0)
+
+          dias = (exp - time.time()) / 86400
+          print(f"[{ambiente}] token expira em {dias:.1f} dias")
+          if dias <= 7:
+              print(f"::error::[{ambiente}] VERDE_JWT_TOKEN expira em {dias:.1f} dias (ou já expirou) — renovar antes que pare de funcionar")
+              sys.exit(1)
+          EOF

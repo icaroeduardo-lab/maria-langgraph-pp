@@ -91,6 +91,25 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
 
+# Issue #113 — só leitura dos 2 secrets de app, pro workflow agendado
+# (.github/workflows/verificar-token-verde.yml) checar a validade do
+# VERDE_JWT_TOKEN sem precisar de credencial fixa nova. Mesmo role de
+# deploy (já confiável nas branches main/develop) — não dá acesso a
+# nenhum secret novo, só GetSecretValue nos 2 que já existem.
+data "aws_iam_policy_document" "github_actions_read_app_secrets" {
+  statement {
+    sid       = "ReadAppSecretsForTokenCheck"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.app_release.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_read_app_secrets" {
+  name   = "read-app-secrets-token-check"
+  role   = aws_iam_role.github_actions.id
+  policy = data.aws_iam_policy_document.github_actions_read_app_secrets.json
+}
+
 output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions.arn
   description = "Role ARN pra configurar como variável AWS_ROLE_ARN no GitHub (Settings → Secrets and variables → Actions)."

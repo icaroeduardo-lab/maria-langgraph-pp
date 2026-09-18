@@ -77,10 +77,18 @@ async function pedirTemProcesso(state: ViolenciaDomesticaStateType): Promise<Par
     tipo: "sim_nao",
     opcoes: ["Sim", "Não"],
   });
-  return { temProcesso: respostaEhSim(resposta) };
+  // Issue #110 — mesmo racional do retry (issue #77): número de processo
+  // digitado direto aqui (sem esperar a pergunta "qual o número?") já é
+  // aceito como o valor, pulando pedirNumeroProcesso. Resposta que não é
+  // nem sim/não nem processo cai no fallback de sempre (trata como "não").
+  if (numeroProcessoFormatoValido(resposta)) {
+    return { temProcesso: true, numeroProcesso: resposta, digitouProcessoDireto: true };
+  }
+  return { temProcesso: respostaEhSim(resposta), digitouProcessoDireto: false };
 }
 
-function depoisDeTemProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "pedirTemRO" {
+function depoisDeTemProcesso(state: ViolenciaDomesticaStateType): "pedirNumeroProcesso" | "pedirTemRO" | "consultarProcesso" {
+  if (state.digitouProcessoDireto) return "consultarProcesso";
   return state.temProcesso ? "pedirNumeroProcesso" : "pedirTemRO";
 }
 
@@ -367,6 +375,7 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addConditionalEdges("pedirTemProcesso", depoisDeTemProcesso, {
     pedirNumeroProcesso: "prepararPerguntaNumeroProcesso",
     pedirTemRO: "prepararPerguntaTemRO",
+    consultarProcesso: "consultarProcesso",
   })
   .addEdge("prepararPerguntaNumeroProcesso", "pedirNumeroProcesso")
   .addEdge("pedirNumeroProcesso", "consultarProcesso")
