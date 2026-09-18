@@ -1,0 +1,150 @@
+[
+  {
+    "title": "Sem host saudável (prod)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "NoData",
+    "execErrState": "Error",
+    "for": "2m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HealthyHostCount",
+          "statistic": "Average",
+          "dimensions": {
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74",
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "last", "expression": "A", "refId": "B" } },
+      {
+        "refId": "C",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "__expr__",
+        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "lt", "params": [1] } }], "refId": "C" }
+      }
+    ]
+  },
+  {
+    "title": "Sem host saudável (release)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "NoData",
+    "execErrState": "Error",
+    "for": "2m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HealthyHostCount",
+          "statistic": "Average",
+          "dimensions": {
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404",
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "last", "expression": "A", "refId": "B" } },
+      {
+        "refId": "C",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "__expr__",
+        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "lt", "params": [1] } }], "refId": "C" }
+      }
+    ]
+  },
+  {
+    "title": "Taxa de erro 5xx alta (prod)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": {
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "sum", "expression": "A", "refId": "B" } },
+      {
+        "refId": "C",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "__expr__",
+        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "gt", "params": [10] } }], "refId": "C" }
+      }
+    ]
+  },
+  {
+    "title": "Taxa de erro 5xx alta (release)",
+    "ruleGroup": "saude-operacional",
+    "folderUID": "ffymyi5yquw3ke",
+    "condition": "C",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "ffymvx5sukwlce",
+        "model": {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": {
+            "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+            "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404"
+          },
+          "region": "us-east-1",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "intervalMs": 1000,
+          "maxDataPoints": 100
+        }
+      },
+      { "refId": "B", "relativeTimeRange": { "from": 300, "to": 0 }, "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "sum", "expression": "A", "refId": "B" } },
+      {
+        "refId": "C",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "datasourceUid": "__expr__",
+        "model": { "type": "threshold", "expression": "B", "conditions": [{ "evaluator": { "type": "gt", "params": [10] } }], "refId": "C" }
+      }
+    ]
+  }
+]
