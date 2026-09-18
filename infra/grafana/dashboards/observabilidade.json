@@ -1,5 +1,6 @@
 {
   "dashboard": {
+    "uid": "328233c1-961c-45b8-a77c-4fdd8190ee79",
     "title": "Maria — Observabilidade",
     "tags": ["maria-langgraph-pp"],
     "timezone": "browser",
@@ -259,6 +260,48 @@
             ],
             "expression": "fields @log, rodada\n| filter evento = \"orquestrador_fluxo_identificado\" or evento = \"orquestrador_finalizado_sem_fluxo\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats avg(rodada) as mediaRodadas, max(rodada) as maxRodadas by bin(1d), ambiente",
             "statsGroups": ["ambiente"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Issue #82 — Handoff por motivo, por ambiente",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields @log, motivoHandoff\n| filter evento = \"atendimento_finalizado\" and ispresent(motivoHandoff)\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats count(*) as total by ambiente, motivoHandoff",
+            "statsGroups": ["ambiente", "motivoHandoff"],
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Issue #82 — Desfecho dos atendimentos concluídos (agendamento, humano, outro), por fluxo e ambiente",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields @log, fluxoId, destino\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| fields coalesce(destino, \"sucesso_sem_destino\") as desfecho\n| stats count(*) as total by ambiente, fluxoNome, desfecho",
+            "statsGroups": ["ambiente", "fluxoNome", "desfecho"],
             "refId": "A"
           }
         ]
