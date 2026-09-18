@@ -305,6 +305,21 @@
             "refId": "A"
           }
         ]
+      },
+      {
+        "id": 12,
+        "title": "Issue #83 — Tempo médio de conclusão por fluxo e desfecho (prod, via SQL)",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "efyn829dce1oga" },
+        "targets": [
+          {
+            "datasource": { "type": "grafana-postgresql-datasource", "uid": "efyn829dce1oga" },
+            "format": "table",
+            "rawSql": "SELECT\n  CASE flow_id\n    WHEN '3df874f2-675a-4c43-9ec7-480f7c702f50' THEN 'pessoa-presa'\n    WHEN 'cabb2495-4e12-4f4a-9956-3d20649059bc' THEN 'violencia-domestica'\n    ELSE flow_id::text\n  END AS fluxo,\n  status_final,\n  count(*) AS total,\n  round(avg(extract(epoch FROM (concluido_em - criado_em))))::int AS tempo_medio_segundos\nFROM atendimentos\nWHERE concluido_em IS NOT NULL\nGROUP BY fluxo, status_final\nORDER BY fluxo, status_final",
+            "refId": "A"
+          }
+        ]
       }
     ]
   },
