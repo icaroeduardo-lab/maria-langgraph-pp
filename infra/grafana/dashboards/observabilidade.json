@@ -39,7 +39,7 @@
       },
       {
         "id": 2,
-        "title": "Latência do ALB (p99, ms)",
+        "title": "Latência do ALB por ambiente (p99, ms)",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -49,18 +49,36 @@
             "namespace": "AWS/ApplicationELB",
             "metricName": "TargetResponseTime",
             "statistic": "p99",
-            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "dimensions": {
+              "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+              "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74"
+            },
             "region": "us-east-1",
             "refId": "A",
-            "queryMode": "Metrics"
+            "queryMode": "Metrics",
+            "label": "prod"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "TargetResponseTime",
+            "statistic": "p99",
+            "dimensions": {
+              "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96",
+              "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404"
+            },
+            "region": "us-east-1",
+            "refId": "B",
+            "queryMode": "Metrics",
+            "label": "release"
           }
         ]
       },
       {
         "id": 3,
-        "title": "Requisições por status code do ALB",
+        "title": "Status code do ALB — prod",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
         "targets": [
           {
@@ -68,7 +86,7 @@
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_2XX_Count",
             "statistic": "Sum",
-            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74" },
             "region": "us-east-1",
             "refId": "A",
             "queryMode": "Metrics",
@@ -79,7 +97,7 @@
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_4XX_Count",
             "statistic": "Sum",
-            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74" },
             "region": "us-east-1",
             "refId": "B",
             "queryMode": "Metrics",
@@ -90,7 +108,49 @@
             "namespace": "AWS/ApplicationELB",
             "metricName": "HTTPCode_Target_5XX_Count",
             "statistic": "Sum",
-            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96" },
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api/b48404228beb2d74" },
+            "region": "us-east-1",
+            "refId": "C",
+            "queryMode": "Metrics",
+            "label": "5xx"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Status code do ALB — release",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+        "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_2XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404" },
+            "region": "us-east-1",
+            "refId": "A",
+            "queryMode": "Metrics",
+            "label": "2xx"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_4XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404" },
+            "region": "us-east-1",
+            "refId": "B",
+            "queryMode": "Metrics",
+            "label": "4xx"
+          },
+          {
+            "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+            "namespace": "AWS/ApplicationELB",
+            "metricName": "HTTPCode_Target_5XX_Count",
+            "statistic": "Sum",
+            "dimensions": { "LoadBalancer": "app/maria-langgraph-pp-alb/d386671af848ad96", "TargetGroup": "targetgroup/maria-langgraph-pp-api-release/29d0b1aaa69bc404" },
             "region": "us-east-1",
             "refId": "C",
             "queryMode": "Metrics",
@@ -100,7 +160,7 @@
       },
       {
         "id": 4,
-        "title": "Issue #85 — Conclusão vs handoff, por fluxo",
+        "title": "Issue #85 — Conclusão vs handoff, por fluxo e ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -113,15 +173,15 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields fluxoId, motivoHandoff\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats count(*) as total by fluxoNome, ispresent(motivoHandoff) as ehHandoff",
-            "statsGroups": ["fluxoNome", "ehHandoff"],
+            "expression": "fields @log, fluxoId, motivoHandoff\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats count(*) as total by ambiente, fluxoNome, ispresent(motivoHandoff) as ehHandoff",
+            "statsGroups": ["ambiente", "fluxoNome", "ehHandoff"],
             "refId": "A"
           }
         ]
       },
       {
         "id": 5,
-        "title": "Issue #86 — Erros de integração com o Verde, por chamada",
+        "title": "Issue #86 — Erros de integração com o Verde, por chamada e ambiente",
         "type": "barchart",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -134,15 +194,15 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields chamada, resultado, duracaoMs\n| filter evento = \"verde_chamada\"\n| stats count(*) as total, avg(duracaoMs) as latenciaMediaMs by chamada, resultado",
-            "statsGroups": ["chamada", "resultado"],
+            "expression": "fields @log, chamada, resultado, duracaoMs\n| filter evento = \"verde_chamada\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats count(*) as total, avg(duracaoMs) as latenciaMediaMs by ambiente, chamada, resultado",
+            "statsGroups": ["ambiente", "chamada", "resultado"],
             "refId": "A"
           }
         ]
       },
       {
         "id": 6,
-        "title": "Issue #87 — Tokens gastos por dia, por fluxo",
+        "title": "Issue #87 — Tokens gastos por dia, por fluxo e ambiente",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -155,15 +215,15 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields fluxoId, tokensGastos.total as tokensTotal\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats sum(tokensTotal) as tokensPorDia by bin(1d), fluxoNome",
-            "statsGroups": ["fluxoNome"],
+            "expression": "fields @log, fluxoId, tokensGastos.total as tokensTotal\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats sum(tokensTotal) as tokensPorDia by bin(1d), ambiente, fluxoNome",
+            "statsGroups": ["ambiente", "fluxoNome"],
             "refId": "A"
           }
         ]
       },
       {
         "id": 7,
-        "title": "Issue #88 — Tentativas esgotadas (RG/CPF/processo)",
+        "title": "Issue #88 — Tentativas esgotadas (RG/CPF/processo), por ambiente",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -176,15 +236,15 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields motivoHandoff\n| filter evento = \"atendimento_finalizado\" and (motivoHandoff = \"rg_nao_encontrado\" or motivoHandoff = \"cpf_nao_encontrado\")\n| stats count(*) as total by bin(1d), motivoHandoff",
-            "statsGroups": ["motivoHandoff"],
+            "expression": "fields @log, motivoHandoff\n| filter evento = \"atendimento_finalizado\" and (motivoHandoff = \"rg_nao_encontrado\" or motivoHandoff = \"cpf_nao_encontrado\")\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats count(*) as total by bin(1d), ambiente, motivoHandoff",
+            "statsGroups": ["ambiente", "motivoHandoff"],
             "refId": "A"
           }
         ]
       },
       {
         "id": 8,
-        "title": "Issue #89 — Rodadas de desambiguação do orquestrador (média/máx)",
+        "title": "Issue #89 — Rodadas de desambiguação do orquestrador, por ambiente (média/máx)",
         "type": "timeseries",
         "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
         "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
@@ -197,8 +257,8 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields rodada\n| filter evento = \"orquestrador_fluxo_identificado\" or evento = \"orquestrador_finalizado_sem_fluxo\"\n| stats avg(rodada) as mediaRodadas, max(rodada) as maxRodadas by bin(1d)",
-            "statsGroups": [],
+            "expression": "fields @log, rodada\n| filter evento = \"orquestrador_fluxo_identificado\" or evento = \"orquestrador_finalizado_sem_fluxo\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats avg(rodada) as mediaRodadas, max(rodada) as maxRodadas by bin(1d), ambiente",
+            "statsGroups": ["ambiente"],
             "refId": "A"
           }
         ]
