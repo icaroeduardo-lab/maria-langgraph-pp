@@ -40,6 +40,14 @@ resource "aws_secretsmanager_secret_version" "grafana" {
     GF_SECURITY_ADMIN_USER     = "PREENCHER"
     GF_SECURITY_ADMIN_PASSWORD = "PREENCHER"
     GF_DATABASE_URL            = "PREENCHER" # postgres://usuario:senha@host:5432/grafana — MESMO host/proxy da app, banco "grafana"
+    # Issue #81 — credenciais SMTP do SES (derivadas da access key do
+    # usuário aws_iam_user.grafana_ses abaixo, algoritmo de conversão da
+    # AWS — não é a secret access key crua). GF_SMTP_FROM_ADDRESS precisa
+    # ser um e-mail VERIFICADO no SES (sandbox mode) — mesmo endereço
+    # usado como destinatário funciona (verificado 2026-09-18).
+    GF_SMTP_USER         = "PREENCHER"
+    GF_SMTP_PASSWORD     = "PREENCHER"
+    GF_SMTP_FROM_ADDRESS = "icaro.eduardo@defensoria.rj.def.br"
   })
 
   lifecycle {
@@ -106,6 +114,42 @@ resource "aws_iam_role_policy" "exec_secrets_grafana" {
   })
 }
 
+# ── SES — usuário dedicado só pra mandar e-mail de alerta (issue #81) ─────
+# Sending autorizado só pro endereço verificado abaixo (SES em sandbox
+# mode, 2026-09-18) — produção de verdade (mandar pra qualquer endereço)
+# precisaria sair do sandbox (pedido formal à AWS), fora de escopo agora.
+resource "aws_iam_user" "grafana_ses" {
+  name = "${var.project}-grafana-ses"
+}
+
+data "aws_iam_policy_document" "grafana_ses" {
+  statement {
+    actions   = ["ses:SendRawEmail", "ses:SendEmail"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_user_policy" "grafana_ses" {
+  name   = "send-email"
+  user   = aws_iam_user.grafana_ses.name
+  policy = data.aws_iam_policy_document.grafana_ses.json
+}
+
+resource "aws_iam_access_key" "grafana_ses" {
+  user = aws_iam_user.grafana_ses.name
+}
+
+output "grafana_ses_access_key_id" {
+  value       = aws_iam_access_key.grafana_ses.id
+  description = "Access key do usuário SES do Grafana — GF_SMTP_USER é este valor, sem conversão."
+}
+
+output "grafana_ses_secret_access_key" {
+  value       = aws_iam_access_key.grafana_ses.secret
+  description = "Secret access key — usar só pra derivar a senha SMTP (algoritmo SigV4 da AWS), nunca colocar essa crua no secret do Grafana."
+  sensitive   = true
+}
+
 # ── Security Group — próprio, ingress só do ALB, egress liberado ─────────
 resource "aws_security_group" "grafana_tasks" {
   name        = "${var.project}-grafana-tasks"
@@ -169,9 +213,13 @@ resource "aws_ecs_task_definition" "grafana" {
       { name = "GF_SERVER_HTTP_PORT", value = tostring(var.grafana_container_port) },
       { name = "GF_DATABASE_TYPE", value = "postgres" },
       { name = "AWS_REGION", value = var.aws_region },
+      # Issue #81 — alerta por e-mail via SMTP do SES. Host/porta não são
+      # segredo (fixo pela região), só usuário/senha/from ficam no secret.
+      { name = "GF_SMTP_ENABLED", value = "true" },
+      { name = "GF_SMTP_HOST", value = "email-smtp.${var.aws_region}.amazonaws.com:587" },
     ]
     secrets = [
-      for k in ["GF_SECURITY_ADMIN_USER", "GF_SECURITY_ADMIN_PASSWORD", "GF_DATABASE_URL"] :
+      for k in ["GF_SECURITY_ADMIN_USER", "GF_SECURITY_ADMIN_PASSWORD", "GF_DATABASE_URL", "GF_SMTP_USER", "GF_SMTP_PASSWORD", "GF_SMTP_FROM_ADDRESS"] :
       { name = k, valueFrom = "${aws_secretsmanager_secret.grafana.arn}:${k}::" }
     ]
     logConfiguration = {
