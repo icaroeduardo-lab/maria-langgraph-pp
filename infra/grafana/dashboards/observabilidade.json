@@ -113,8 +113,8 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields fluxoId, motivoHandoff\n| filter evento = \"atendimento_finalizado\"\n| stats count(*) as total by fluxoId, ispresent(motivoHandoff) as ehHandoff",
-            "statsGroups": ["fluxoId", "ehHandoff"],
+            "expression": "fields fluxoId, motivoHandoff\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats count(*) as total by fluxoNome, ispresent(motivoHandoff) as ehHandoff",
+            "statsGroups": ["fluxoNome", "ehHandoff"],
             "refId": "A"
           }
         ]
@@ -155,8 +155,8 @@
               { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
               { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
             ],
-            "expression": "fields fluxoId, tokensGastos.total as tokensTotal\n| filter evento = \"atendimento_finalizado\"\n| stats sum(tokensTotal) as tokensPorDia by bin(1d), fluxoId",
-            "statsGroups": ["fluxoId"],
+            "expression": "fields fluxoId, tokensGastos.total as tokensTotal\n| filter evento = \"atendimento_finalizado\"\n| fields replace(replace(fluxoId, \"3df874f2-675a-4c43-9ec7-480f7c702f50\", \"pessoa-presa\"), \"cabb2495-4e12-4f4a-9956-3d20649059bc\", \"violencia-domestica\") as fluxoNome\n| stats sum(tokensTotal) as tokensPorDia by bin(1d), fluxoNome",
+            "statsGroups": ["fluxoNome"],
             "refId": "A"
           }
         ]
