@@ -301,10 +301,13 @@ export async function criarAtendimento(
     log.info({ fluxoId, chatId, evento: "pergunta_enviada", status: "em_andamento", tipoResposta: interrupt.tipo, viaIA: viaIA ?? false, tokensGastosTotal }, "pergunta enviada");
   } else {
     const { statusFinal, motivoHandoff, tokensGastos } = resultado as ValoresAtendimento;
-    log.info(
-      { fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino: destinoDoLog(fluxoId, statusFinal), motivoHandoff, tokensGastos },
-      "atendimento finalizado"
-    );
+    const destino = destinoDoLog(fluxoId, statusFinal);
+    log.info({ fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino, motivoHandoff, tokensGastos }, "atendimento finalizado");
+    // Issue #83 — mesmo dado do log, gravado estruturado (colunas) pra
+    // consulta SQL direta via datasource Postgres no Grafana.
+    if (statusFinal) {
+      await store.concluir(chatId, { statusFinal: statusFinal as "concluido" | "handoff_humano", destino, motivoHandoff: motivoHandoff as string | undefined, tokensGastos });
+    }
   }
 
   return {
@@ -488,10 +491,13 @@ export function registrarRotasAtendimento(app: FastifyInstance): void {
         // isso não tinha como montar métrica de "handoff por motivo" nem
         // "tokens gastos por dia" via CloudWatch Logs Insights.
         const { statusFinal, motivoHandoff, tokensGastos } = resultado as ValoresAtendimento;
-        req.log.info(
-          { fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino: destinoDoLog(fluxoId, statusFinal), motivoHandoff, tokensGastos },
-          "atendimento finalizado"
-        );
+        const destino = destinoDoLog(fluxoId, statusFinal);
+        req.log.info({ fluxoId, chatId, evento: "atendimento_finalizado", status: "concluido", destino, motivoHandoff, tokensGastos }, "atendimento finalizado");
+        // Issue #83 — mesmo dado do log, gravado estruturado (colunas) pra
+        // consulta SQL direta via datasource Postgres no Grafana.
+        if (statusFinal) {
+          await store.concluir(chatId, { statusFinal: statusFinal as "concluido" | "handoff_humano", destino, motivoHandoff: motivoHandoff as string | undefined, tokensGastos });
+        }
       }
       return montarRespostaAtendimento(fluxo, fluxoId, chatId, interrupt, resultado as ValoresAtendimento);
     }

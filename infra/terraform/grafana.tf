@@ -55,6 +55,38 @@ resource "aws_secretsmanager_secret_version" "grafana" {
   }
 }
 
+# ── Secret — usuário Postgres SOMENTE LEITURA pro datasource (issue #83) ──
+# NUNCA o usuário "maria" da app (esse tem INSERT/UPDATE/DELETE) — role
+# própria, read-only, criada manualmente (mesmo racional do "CREATE
+# DATABASE grafana" acima: sem provider de Postgres neste stack). Rodar 1x
+# via psql/ecs run-task, no banco maria_langgraph_pp (prod) e
+# maria_langgraph_pp_release:
+#   CREATE ROLE grafana_readonly WITH LOGIN PASSWORD '<gerar senha forte>';
+#   GRANT CONNECT ON DATABASE maria_langgraph_pp TO grafana_readonly;
+#   GRANT USAGE ON SCHEMA public TO grafana_readonly;
+#   GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_readonly;
+#   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_readonly;
+#   -- repetir GRANT CONNECT/USAGE/SELECT trocando o banco pra maria_langgraph_pp_release
+# Depois preencher este secret (aws secretsmanager put-secret-value) e criar
+# o datasource Postgres no Grafana (UI ou API /api/datasources) apontando
+# pro mesmo host/proxy da app, usuário/senha abaixo.
+resource "aws_secretsmanager_secret" "grafana_postgres_readonly" {
+  name        = "${var.project}-grafana/postgres-readonly"
+  description = "Usuário Postgres somente-leitura pro datasource Postgres do Grafana (dados de negócio, issue #83) — nunca o usuário da app."
+}
+
+resource "aws_secretsmanager_secret_version" "grafana_postgres_readonly" {
+  secret_id = aws_secretsmanager_secret.grafana_postgres_readonly.id
+  secret_string = jsonencode({
+    PGUSER     = "PREENCHER" # grafana_readonly
+    PGPASSWORD = "PREENCHER"
+  })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
 # ── IAM — task role PRÓPRIA, só leitura no CloudWatch ─────────────────────
 resource "aws_iam_role" "grafana_task" {
   name               = "${var.project}-grafana-task"
