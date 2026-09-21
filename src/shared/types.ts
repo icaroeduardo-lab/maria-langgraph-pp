@@ -41,14 +41,15 @@ export interface DadosProcesso {
   movimentos?: MovimentoProcesso[];
 }
 
+// Issue #127 — só ids + CEP (sem os textos de logradouro/bairro/município/uf,
+// que a Verde já devolve em /pessoa mas ninguém usa em lógica do fluxo).
+// idUf vem sempre; idBairro/idMunicipio ficam undefined quando a Verde não
+// tem esse dado cadastrado pro CEP (achado ao vivo 2026-09-21).
 export interface EnderecoDetalhado {
-  logradouro?: string;
-  numero?: string;
-  complemento?: string;
-  bairro?: string;
-  municipio?: string;
-  uf?: string;
   cep?: string;
+  idUf?: number;
+  idBairro?: number;
+  idMunicipio?: number;
 }
 
 export interface DadosPessoa {
@@ -59,6 +60,16 @@ export interface DadosPessoa {
   genero?: string;
   endereco?: string;
   enderecoDetalhado?: EnderecoDetalhado;
+}
+
+// Issue #127 — GET /cep/{cep} na Verde, separado de /pessoa. idBairro/
+// idMunicipio ficam undefined quando a Verde não tem esse dado pro CEP
+// (achado ao vivo 2026-09-21, testado com 2 CEPs reais — só idUf veio).
+export interface DadosCep {
+  encontrado: boolean;
+  idUf?: number;
+  idBairro?: number;
+  idMunicipio?: number;
 }
 
 export interface HorarioUrgencia {
