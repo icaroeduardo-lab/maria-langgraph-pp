@@ -121,6 +121,31 @@ resource "aws_iam_role_policy_attachment" "github_actions_read_only" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# Achado ao vivo (2026-09-21) rodando terraform-drift.yml pela 1ª vez:
+# ReadOnlyAccess não basta pro `terraform plan` sozinho — o backend S3
+# trava o state via DynamoDB (dynamodb_table em backend.tf) antes de
+# QUALQUER operação, mesmo plan sem apply, e GetItem/PutItem/DeleteItem
+# nessa tabela conta como "escrita" pra AWS, fora do ReadOnlyAccess.
+# Statement propositalmente restrito à ÚNICA tabela de lock (não ao S3
+# do state em si, que seria escrita de verdade) — na pior hipótese essa
+# role só consegue travar/destravar um lock, nunca alterar o conteúdo
+# real do .tfstate. Nome da tabela é o mesmo literal já usado em
+# backend.tf (esse lock não é gerenciado por nenhum Terraform — recurso
+# de bootstrap do stack antigo).
+data "aws_iam_policy_document" "github_actions_terraform_lock" {
+  statement {
+    sid       = "TerraformStateLock"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = ["arn:aws:dynamodb:us-east-1:185327115563:table/maria-tf-lock"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_terraform_lock" {
+  name   = "terraform-state-lock"
+  role   = aws_iam_role.github_actions.id
+  policy = data.aws_iam_policy_document.github_actions_terraform_lock.json
+}
+
 output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions.arn
   description = "Role ARN pra configurar como variável AWS_ROLE_ARN no GitHub (Settings → Secrets and variables → Actions)."
