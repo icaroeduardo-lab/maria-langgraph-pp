@@ -7,6 +7,9 @@ import { registrarRotasAtendimento } from "./rotas/atendimentos.js";
 import { registrarRotaFluxos } from "./rotas/fluxos.js";
 import { registrarRotaOrquestrador } from "./rotas/orquestrador.js";
 import { logger } from "./shared/logger.js";
+import { obterAtendimentosStore } from "./shared/atendimentosDb.js";
+import { obterPerguntasStore } from "./shared/perguntasDb.js";
+import { listarFluxosPlanejados } from "./shared/fluxosPlanejadosDb.js";
 
 // Monta o Fastify sem chamar listen() — assim os testes usam app.inject()
 // direto, sem precisar subir servidor de verdade numa porta. Quem quer
@@ -23,6 +26,20 @@ export async function montarApp() {
   // log — é ele que correlaciona TODAS as chamadas de uma mesma conversa
   // entre si (reqId sozinho não faz isso, é só por requisição individual).
   const app = Fastify({ loggerInstance: logger, genReqId: () => randomUUID() });
+
+  // Issue #114 — migração de schema explícita no startup, mesmo racional
+  // do checkpointer (shared/checkpointer.ts, já bloqueia via top-level
+  // await no compile de cada fluxo): sem isso, CREATE/ALTER TABLE só
+  // rodava na 1ª request de negócio que tocasse cada store (lazy),
+  // deixando o deploy "saudável" (ECS/ALB healthy) MUITO antes do schema
+  // estar pronto de verdade — achado ao vivo 2026-09-18/21, precisou forçar
+  // manualmente via ecs run-task depois de 2 deploys. Health check só some
+  // OK depois que isso terminar (listen() só roda depois de montarApp()
+  // resolver, ver server.ts).
+  await obterAtendimentosStore();
+  const perguntasStore = await obterPerguntasStore();
+  await perguntasStore.listarPerguntasPorFlow("00000000-0000-0000-0000-000000000000");
+  await listarFluxosPlanejados();
 
   // Code-first (gera o spec a partir do schema de cada rota, não de um yaml
   // mantido à mão) — repo pequeno/experimental, sem o guard de CI que o back
