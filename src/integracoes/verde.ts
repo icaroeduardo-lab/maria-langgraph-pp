@@ -1,5 +1,6 @@
 import type {
   DadosApenado,
+  DadosCep,
   DadosPessoa,
   DadosProcesso,
   OrgaoAtendimento,
@@ -185,13 +186,10 @@ interface PessoaResponseVerde {
     nomeSocial?: string;
     genero?: string;
     endereco?: string;
+    // Issue #127 — só cep é usado (pra alimentar consultarCep); a Verde
+    // devolve logradouro/bairro/municipio/uf também, mas ninguém lê isso
+    // em lógica do fluxo, e os ids equivalentes vêm de /cep, não daqui.
     enderecoDetalhado?: {
-      logradouro?: string;
-      numero?: string;
-      complemento?: string;
-      bairro?: string;
-      municipio?: string;
-      uf?: string;
       cep?: string;
     };
   };
@@ -214,7 +212,7 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
       nome: "Pessoa de Teste (mock)",
       genero: "Feminino",
       endereco: "Rua de Teste, 123 (mock)",
-      enderecoDetalhado: { bairro: "Centro", municipio: "Rio de Janeiro", uf: "RJ", cep: "20000-000" },
+      enderecoDetalhado: { cep: "20000-000" },
     };
   }
   const inicio = Date.now();
@@ -250,6 +248,63 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "pessoa", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] pessoa: falha na chamada");
+    return { encontrado: false };
+  }
+}
+
+// bairro/municipio vêm ora null, ora objeto {id,...} (achado ao vivo
+// 2026-09-21, testando /cep com CEPs reais só uf veio populado) — leitura
+// defensiva, sem assumir shape fixo.
+interface CepResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: {
+    uf?: { id?: number } | null;
+    bairro?: { id?: number } | null;
+    municipio?: { id?: number } | null;
+  };
+}
+
+function idDeCampoCep(campo: { id?: number } | null | undefined): number | undefined {
+  return campo && typeof campo === "object" ? campo.id : undefined;
+}
+
+// Issue #127 — GET /cep/{cep}, separado de /pessoa: devolve ids de
+// uf/bairro/município (quando cadastrados) pra quem só tinha o nome em
+// texto via /pessoa. idBairro/idMunicipio ficam undefined quando a Verde
+// não tem esse dado pro CEP — não é erro, o CEP existe, só falta o
+// detalhe (aconteceu com os 2 CEPs reais testados nesta sessão).
+export async function consultarCep(cep: string): Promise<DadosCep> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    return { encontrado: true, idUf: 19 };
+  }
+  const inicio = Date.now();
+  try {
+    const res = await fetch(`${VERDE_API_URL}/cep/${encodeURIComponent(cep)}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "cep", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] cep: HTTP não-ok");
+      return { encontrado: false };
+    }
+    const corpo = (await res.json()) as CepResponseVerde;
+    logger.info({ ...contextoAtual(), evento: "verde_chamada", chamada: "cep", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] cep: chamada concluída");
+    if (!corpo.dados) return { encontrado: false };
+    return {
+      encontrado: true,
+      idUf: idDeCampoCep(corpo.dados.uf),
+      idBairro: idDeCampoCep(corpo.dados.bairro),
+      idMunicipio: idDeCampoCep(corpo.dados.municipio),
+    };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "cep", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] cep: falha na chamada");
     return { encontrado: false };
   }
 }

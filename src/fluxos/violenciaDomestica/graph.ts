@@ -2,6 +2,7 @@ import { interrupt, StateGraph, START, END } from "@langchain/langgraph";
 import { type ViolenciaDomesticaStateType, ViolenciaDomesticaState } from "./state.js";
 import type { OrgaoAtendimento, Pergunta } from "../../shared/types.js";
 import {
+  consultarCep as consultarCepVerde,
   consultarOrgaosPlantaoViolenciaDomestica,
   consultarOrgaosViolenciaDomestica,
   consultarPessoaPorCpf,
@@ -192,6 +193,28 @@ async function consultarPessoa(state: ViolenciaDomesticaStateType): Promise<Part
   return { dadosPessoa: dados, tentativasCpf: (state.tentativasCpf ?? 0) + 1 };
 }
 
+// Issue #127 — roda sempre depois de consultarPessoa (mesmo sem CPF
+// encontrado, se enderecoDetalhado.cep não existir consultarCepVerde
+// devolve encontrado:false e só não preenche os ids — não bloqueia nada,
+// mesmo racional non-blocking de consultarPlantao/consultarProcesso).
+async function consultarCep(state: ViolenciaDomesticaStateType): Promise<Partial<ViolenciaDomesticaStateType>> {
+  const cep = state.dadosPessoa?.enderecoDetalhado?.cep;
+  if (!cep) return {};
+  const dadosCep = await consultarCepVerde(cep);
+  if (!dadosCep.encontrado || !state.dadosPessoa) return {};
+  return {
+    dadosPessoa: {
+      ...state.dadosPessoa,
+      enderecoDetalhado: {
+        ...state.dadosPessoa.enderecoDetalhado,
+        idUf: dadosCep.idUf,
+        idBairro: dadosCep.idBairro,
+        idMunicipio: dadosCep.idMunicipio,
+      },
+    },
+  };
+}
+
 // Sem parâmetro nenhum — dá pra rodar em qualquer ponto do fluxo, roda logo
 // depois de saber idPessoa pra já decidir qual consulta de órgão usar em
 // seguida. Vazio = fora de horário de plantão, segue fluxo normal.
@@ -355,6 +378,7 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addNode("prepararPerguntaCpf", prepararPerguntaCpf)
   .addNode("pedirCpf", pedirCpf)
   .addNode("consultarPessoa", consultarPessoa)
+  .addNode("consultarCep", consultarCep)
   .addNode("consultarPlantao", consultarPlantao)
   .addNode("consultarOrgaos", consultarOrgaos)
   .addNode("semOrgaoDisponivel", semOrgaoDisponivel)
@@ -395,7 +419,8 @@ const grafo = new StateGraph(ViolenciaDomesticaState)
   .addEdge("pedirTemRO", "prepararPerguntaCpf")
   .addEdge("prepararPerguntaCpf", "pedirCpf")
   .addEdge("pedirCpf", "consultarPessoa")
-  .addEdge("consultarPessoa", "consultarPlantao")
+  .addEdge("consultarPessoa", "consultarCep")
+  .addEdge("consultarCep", "consultarPlantao")
   .addEdge("consultarPlantao", "consultarOrgaos")
   .addConditionalEdges("consultarOrgaos", depoisDeConsultarOrgaos, {
     semOrgao: "semOrgaoDisponivel",

@@ -73,13 +73,10 @@ export const metadadosSchemaViolenciaDomestica = {
         enderecoDetalhado: {
           type: "object",
           properties: {
-            logradouro: { type: "string" },
-            numero: { type: "string" },
-            complemento: { type: "string" },
-            bairro: { type: "string" },
-            municipio: { type: "string" },
-            uf: { type: "string" },
             cep: { type: "string" },
+            idUf: { type: "number" },
+            idBairro: { type: "number" },
+            idMunicipio: { type: "number" },
           },
         },
       },
