@@ -1,0 +1,39 @@
+name: Detectar drift de Terraform
+
+# Issue #122 — separado dos workflows de deploy DE PROPÓSITO: drift de
+# infra raramente tem relação com o código da app, e travar deploy de app
+# num drift de infra não relacionado (ex: alguém esqueceu um apply de outra
+# coisa) impediria até um fix de bug simples de subir. Esse job só AVISA
+# (falha o check, não bloqueia nada) — quem decide quando aplicar continua
+# sendo humano.
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - "infra/terraform/**"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # necessário pro OIDC (aws-actions/configure-aws-credentials)
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - run: terraform init
+
+      - name: terraform plan (falha se tiver drift pendente)
+        run: terraform plan -detailed-exitcode

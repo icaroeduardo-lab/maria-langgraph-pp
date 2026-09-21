@@ -110,6 +110,17 @@ resource "aws_iam_role_policy" "github_actions_read_app_secrets" {
   policy = data.aws_iam_policy_document.github_actions_read_app_secrets.json
 }
 
+# Issue #122 — ReadOnlyAccess (gerenciada pela AWS) pro workflow de drift
+# (.github/workflows/terraform-drift.yml) rodar `terraform plan` de
+# verdade — precisa descrever recursos de várias APIs (IAM, ECS, RDS,
+# CloudFront, etc.), mas SÓ leitura. A policy de deploy acima continua a
+# única fonte de permissão de ESCRITA desta role — isso aqui nunca dá
+# ecs:UpdateService/iam:PutRolePolicy/etc, só Get/Describe/List.
+resource "aws_iam_role_policy_attachment" "github_actions_read_only" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
 output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions.arn
   description = "Role ARN pra configurar como variável AWS_ROLE_ARN no GitHub (Settings → Secrets and variables → Actions)."
