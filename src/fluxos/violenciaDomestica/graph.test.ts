@@ -38,6 +38,26 @@ test("é vítima → pergunta sobre processo em seguida", async () => {
   assert.match(p?.pergunta ?? "", /processo relacionado/);
 });
 
+// Issue #110 — mesmo racional do retry (issue #77): número de processo
+// digitado direto na pergunta INICIAL "existe processo?" (não só no
+// retry) já é reconhecido pelo formato, pulando pedirNumeroProcesso.
+test("processo digitado direto na pergunta inicial 'existe processo?' → pula pedirNumeroProcesso, consulta direto (issue #110)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  const r = await grafo.invoke(new Command({ resume: "0000088-95.2026.8.19.0010" }), config); // número direto, não "sim"
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/, "deveria pular pedirNumeroProcesso e ir direto pra consulta");
+  assert.equal((r as { dadosProcesso?: { encontrado: boolean } }).dadosProcesso?.encontrado, true, "deveria ter consultado com o número digitado, não perdido o valor");
+});
+
+test("resposta que não é sim/não nem processo na pergunta inicial → trata como não tem processo, sem regressão (issue #110)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  const r = await grafo.invoke(new Command({ resume: "não sei" }), config);
+  assert.match(pergunta(r)?.pergunta ?? "", /Boletim de Ocorrência/, "resposta não reconhecida deveria cair no fallback de 'não tem processo' (pula pro RO), igual antes");
+});
+
 test("tem processo → pede número, consulta Verde (informativo), segue pro RO normalmente", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);

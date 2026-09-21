@@ -462,7 +462,11 @@ export async function consultarOrgaosPlantaoViolenciaDomestica(idPlantao: number
 interface EncaminhamentoResponseVerde {
   codigo?: string;
   mensagem?: string;
-  id?: number;
+  // id vem aninhado em `dados` (confirmado ao vivo 2026-09-18) — igual ao
+  // padrão de pessoa/orgao, diferente do que este endpoint tinha antes
+  // (corpo.id na raiz, que nunca existiu de verdade e fazia todo
+  // encaminhamento cair em falha_encaminhamento mesmo com HTTP 201 OK).
+  dados?: { id?: number; urgente?: boolean };
 }
 
 export interface DadosEncaminhamento {
@@ -510,8 +514,8 @@ export async function criarEncaminhamentoViolenciaDomestica(dados: DadosEncaminh
       logger.error({ ...contextoAtual(), status: res.status, corpo, evento: "verde_chamada", chamada: "encaminhamento", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: HTTP não-ok");
       return { sucesso: false, erro: corpo.mensagem ?? `HTTP ${res.status}` };
     }
-    logger.info({ ...contextoAtual(), evento: "verde_chamada", chamada: "encaminhamento", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: chamada concluída");
-    return { sucesso: true, id: corpo.id };
+    logger.info({ ...contextoAtual(), corpo, evento: "verde_chamada", chamada: "encaminhamento", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: chamada concluída");
+    return { sucesso: true, id: corpo.dados?.id };
   } catch (err) {
     logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "encaminhamento", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: falha na chamada");
     return { sucesso: false, erro: "falha na chamada ao Verde" };
