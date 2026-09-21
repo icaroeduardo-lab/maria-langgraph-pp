@@ -91,16 +91,29 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
 
-# Issue #113 — só leitura dos 2 secrets de app, pro workflow agendado
+# Issue #113 — leitura dos secrets de app, pro workflow agendado
 # (.github/workflows/verificar-token-verde.yml) checar a validade do
-# VERDE_JWT_TOKEN sem precisar de credencial fixa nova. Mesmo role de
-# deploy (já confiável nas branches main/develop) — não dá acesso a
-# nenhum secret novo, só GetSecretValue nos 2 que já existem.
+# VERDE_JWT_TOKEN sem precisar de credencial fixa nova.
+#
+# Issue #122 — ampliado pros 2 secrets do Grafana: terraform-drift.yml
+# roda `terraform plan` de verdade, que precisa REFRESH de todo
+# aws_secretsmanager_secret_version que este state gerencia (mesmo com
+# `lifecycle.ignore_changes = [secret_string]` — o refresh lê o valor
+# atual ANTES de decidir ignorar o diff). ReadOnlyAccess exclui
+# secretsmanager:GetSecretValue de propósito (dado sensível) — sem esse
+# statement, terraform-drift.yml falha com AccessDenied nos 2 secrets
+# do Grafana (achado ao vivo 2026-09-21). Continua restrito aos 4
+# secrets deste projeto, nunca um wildcard pra conta toda.
 data "aws_iam_policy_document" "github_actions_read_app_secrets" {
   statement {
-    sid       = "ReadAppSecretsForTokenCheck"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.app_release.arn]
+    sid     = "ReadAppSecretsForTokenCheckAndTerraformRefresh"
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.app.arn,
+      aws_secretsmanager_secret.app_release.arn,
+      aws_secretsmanager_secret.grafana.arn,
+      aws_secretsmanager_secret.grafana_postgres_readonly.arn,
+    ]
   }
 }
 
