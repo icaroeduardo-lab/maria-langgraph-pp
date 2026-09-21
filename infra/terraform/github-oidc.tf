@@ -91,16 +91,29 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
 
-# Issue #113 — só leitura dos 2 secrets de app, pro workflow agendado
+# Issue #113 — leitura dos secrets de app, pro workflow agendado
 # (.github/workflows/verificar-token-verde.yml) checar a validade do
-# VERDE_JWT_TOKEN sem precisar de credencial fixa nova. Mesmo role de
-# deploy (já confiável nas branches main/develop) — não dá acesso a
-# nenhum secret novo, só GetSecretValue nos 2 que já existem.
+# VERDE_JWT_TOKEN sem precisar de credencial fixa nova.
+#
+# Issue #122 — ampliado pros 2 secrets do Grafana: terraform-drift.yml
+# roda `terraform plan` de verdade, que precisa REFRESH de todo
+# aws_secretsmanager_secret_version que este state gerencia (mesmo com
+# `lifecycle.ignore_changes = [secret_string]` — o refresh lê o valor
+# atual ANTES de decidir ignorar o diff). ReadOnlyAccess exclui
+# secretsmanager:GetSecretValue de propósito (dado sensível) — sem esse
+# statement, terraform-drift.yml falha com AccessDenied nos 2 secrets
+# do Grafana (achado ao vivo 2026-09-21). Continua restrito aos 4
+# secrets deste projeto, nunca um wildcard pra conta toda.
 data "aws_iam_policy_document" "github_actions_read_app_secrets" {
   statement {
-    sid       = "ReadAppSecretsForTokenCheck"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.app.arn, aws_secretsmanager_secret.app_release.arn]
+    sid     = "ReadAppSecretsForTokenCheckAndTerraformRefresh"
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.app.arn,
+      aws_secretsmanager_secret.app_release.arn,
+      aws_secretsmanager_secret.grafana.arn,
+      aws_secretsmanager_secret.grafana_postgres_readonly.arn,
+    ]
   }
 }
 
@@ -119,6 +132,31 @@ resource "aws_iam_role_policy" "github_actions_read_app_secrets" {
 resource "aws_iam_role_policy_attachment" "github_actions_read_only" {
   role       = aws_iam_role.github_actions.name
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# Achado ao vivo (2026-09-21) rodando terraform-drift.yml pela 1ª vez:
+# ReadOnlyAccess não basta pro `terraform plan` sozinho — o backend S3
+# trava o state via DynamoDB (dynamodb_table em backend.tf) antes de
+# QUALQUER operação, mesmo plan sem apply, e GetItem/PutItem/DeleteItem
+# nessa tabela conta como "escrita" pra AWS, fora do ReadOnlyAccess.
+# Statement propositalmente restrito à ÚNICA tabela de lock (não ao S3
+# do state em si, que seria escrita de verdade) — na pior hipótese essa
+# role só consegue travar/destravar um lock, nunca alterar o conteúdo
+# real do .tfstate. Nome da tabela é o mesmo literal já usado em
+# backend.tf (esse lock não é gerenciado por nenhum Terraform — recurso
+# de bootstrap do stack antigo).
+data "aws_iam_policy_document" "github_actions_terraform_lock" {
+  statement {
+    sid       = "TerraformStateLock"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = ["arn:aws:dynamodb:us-east-1:185327115563:table/maria-tf-lock"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_terraform_lock" {
+  name   = "terraform-state-lock"
+  role   = aws_iam_role.github_actions.id
+  policy = data.aws_iam_policy_document.github_actions_terraform_lock.json
 }
 
 output "github_actions_role_arn" {
