@@ -8,8 +8,6 @@ Cada "conversa" é um **atendimento**: uma sequência de perguntas e respostas q
 
 ![Diagrama de componentes AWS](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/arquitetura.png)
 
-Versão com ícones reais da AWS (Eraser): `docs/diagrama-arquitetura.eraser` — cole em [app.eraser.io](https://app.eraser.io) pra renderizar/editar.
-
 ## Por que LangGraph
 
 O fluxo de cada atendimento é uma máquina de estados com pausa/retomada: pergunta → espera resposta → decide a próxima pergunta a partir do que já sabe → repete até concluir. LangGraph modela isso nativamente:
