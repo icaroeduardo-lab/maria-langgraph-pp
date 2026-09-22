@@ -8,6 +8,8 @@ Cada "conversa" é um **atendimento**: uma sequência de perguntas e respostas q
 
 ![Diagrama de componentes AWS](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/arquitetura.png)
 
+> O diagrama acima não mostra o CloudWatch — o Grafana também lê métricas e logs direto do CloudWatch (`cloudwatch:GetMetricData`/`GetMetricStatistics`/`ListMetrics`/`Describe*Alarm*` + logs, tudo **somente leitura**, via task role própria dele — ver `infra/terraform/grafana.tf`), além do datasource Postgres já representado. Ver seção Observabilidade abaixo.
+
 ## Por que LangGraph
 
 O fluxo de cada atendimento é uma máquina de estados com pausa/retomada: pergunta → espera resposta → decide a próxima pergunta a partir do que já sabe → repete até concluir. LangGraph modela isso nativamente:
@@ -74,7 +76,8 @@ Bearer token fixo (`API_KEY`), um valor só por ambiente, guardado em Secrets Ma
 
 - **Logs estruturados** (pino, JSON) — todo log de negócio carrega `chatId`/`fluxoId` pra correlacionar uma conversa inteira entre requests diferentes (`reqId` sozinho só correlaciona 1 request). `evento` é um campo fixo (`atendimento_criado`, `pergunta_enviada`, `atendimento_finalizado`, `verde_chamada`...) — filtra por isso, não pelo texto livre da mensagem.
 - **CloudWatch Logs Insights** — consulta os logs acima. Dashboard versionado em `infra/grafana/dashboards/observabilidade.json`.
-- **Datasource Postgres no Grafana** — consulta direto a tabela `atendimentos` via SQL (joins/agregações que Logs Insights não faz bem), usuário **somente leitura** dedicado (`grafana_readonly`).
+- **Datasource CloudWatch no Grafana** — o Grafana chama a API do CloudWatch direto (métricas e logs), com task role própria de **somente leitura** (`cloudwatch:GetMetricData`/`GetMetricStatistics`/`ListMetrics`/`Describe*Alarm*` + logs, ver `infra/terraform/grafana.tf`) — não fica limitado ao Logs Insights manual, os dashboards já plotam isso direto.
+- **Datasource Postgres no Grafana** — consulta direto a tabela `atendimentos` via SQL (joins/agregações que CloudWatch não faz bem), usuário **somente leitura** dedicado (`grafana_readonly`).
 - **Alertas** (`infra/grafana/alerts/saude-operacional.json`) — host saudável, taxa de erro 5xx, CPU alta, latência alta, por ambiente (prod/release).
 - **Publish automatizado** (`.github/workflows/publish-grafana.yml`) — dashboards/alertas versionados no repo são aplicados no Grafana automaticamente a cada push que toque `infra/grafana/**`. Sem isso, o que está no repo e o que está publicado divergem silenciosamente (já aconteceu 2x numa mesma sessão de trabalho).
 - **Detecção de drift de Terraform** (`.github/workflows/terraform-drift.yml`) — roda `terraform plan` e falha se tiver mudança pendente, separado dos workflows de deploy de propósito (drift de infra não deve travar um fix de bug simples de subir).
