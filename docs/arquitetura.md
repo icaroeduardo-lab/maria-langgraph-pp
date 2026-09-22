@@ -89,6 +89,7 @@ Bearer token fixo (`API_KEY`), um valor só por ambiente, guardado em Secrets Ma
 - **VPC/subnets/RDS compartilhados** com um stack Terraform antigo (`data.terraform_remote_state.old`) — não duplica rede nem banco, só lê os IDs de lá. Esse repo nunca escreve no state antigo.
 - **RDS Proxy compartilhado** — o app e o Grafana se conectam ao Postgres através do mesmo proxy que o stack antigo já usa; cada security group novo (task da app, task do Grafana) ganha uma regra de ingress própria no SG do proxy, sem o stack antigo precisar saber desse repo na hora de escrever o `.tf` dele.
 - **Deploy via GitHub Actions com OIDC** (sem chave AWS fixa guardada como secret) — token de curta duração emitido pelo GitHub a cada run, `assume-role` restrito pelo `sub` do token a só `main`/`develop`.
+- **Tag semver + GitHub Release automáticos** (issue #145) — todo deploy que chega em `main` com sucesso ganha uma tag `vX.Y.Z` (job `tag` em `deploy-prod.yml`): bump calculado a partir dos tipos de commit desde a última tag (`feat` → minor, `BREAKING CHANGE` no corpo → major, qualquer outro caso → patch), Release criada com changelog gerado automaticamente (`gh release create --generate-notes`).
 - **Secrets fora do Terraform** — todo valor real (token do Verde, senha do Postgres, API_KEY) é preenchido manualmente via `aws secretsmanager put-secret-value` depois do `apply` (o `.tf` só cria o secret vazio, com placeholder `"PREENCHER"`) — decisão deliberada pra nunca ter segredo real em texto plano no state/código.
 
 ## O que NÃO tem (de propósito, por enquanto)
