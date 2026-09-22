@@ -320,6 +320,27 @@
             "refId": "A"
           }
         ]
+      },
+      {
+        "id": 13,
+        "title": "Issue #112 — Erros do Verde: auth/infra vs não encontrado, por ambiente e chamada",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+        "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
+        "targets": [
+          {
+            "datasource": { "type": "cloudwatch", "uid": "ffymvx5sukwlce" },
+            "queryMode": "Logs",
+            "region": "us-east-1",
+            "logGroups": [
+              { "arn": "/ecs/maria-langgraph-pp/api", "name": "/ecs/maria-langgraph-pp/api" },
+              { "arn": "/ecs/maria-langgraph-pp-release/api", "name": "/ecs/maria-langgraph-pp-release/api" }
+            ],
+            "expression": "fields @log, chamada, tipoErro, status\n| filter evento = \"verde_chamada\" and resultado = \"nao_ok\"\n| fields replace(replace(@log, \"185327115563:/ecs/maria-langgraph-pp-release/api\", \"release\"), \"185327115563:/ecs/maria-langgraph-pp/api\", \"prod\") as ambiente\n| stats count(*) as total by ambiente, chamada, tipoErro",
+            "statsGroups": ["ambiente", "chamada", "tipoErro"],
+            "refId": "A"
+          }
+        ]
       }
     ]
   },
