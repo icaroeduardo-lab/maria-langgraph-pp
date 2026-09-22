@@ -9,7 +9,6 @@ Ponte entre a **Tykhe** (chatbot) e o **Verde** (sistema da Defensoria Pública 
 - [`docs/fluxo-violencia-domestica.md`](docs/fluxo-violencia-domestica.md) — regras de negócio do fluxo violência doméstica.
 - [`docs/integracao-verde.md`](docs/integracao-verde.md) — cada endpoint do Verde usado, shape real de resposta, bugs já encontrados ao vivo.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
-- [`docs/diagrama-arquitetura.eraser`](docs/diagrama-arquitetura.eraser) — script pra gerar o diagrama de infra AWS com ícones reais em [eraser.io](https://app.eraser.io).
 
 ## Rodando local
 
