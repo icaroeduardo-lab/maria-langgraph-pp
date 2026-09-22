@@ -1,5 +1,6 @@
 import type {
   DadosApenado,
+  DadosCep,
   DadosPessoa,
   DadosProcesso,
   OrgaoAtendimento,
@@ -15,6 +16,22 @@ import { contextoAtual } from "../shared/contexto.js";
 const VERDE_API_URL = process.env.VERDE_API_URL ?? "https://homologacao.verde.rj.def.br/api/integra";
 const VERDE_JWT_TOKEN = process.env.VERDE_JWT_TOKEN ?? "";
 const VERDE_CLIENT_ID = process.env.VERDE_CLIENT_ID ?? "";
+
+// Issue #112 — 401/403 (token expirado/inválido) e 5xx (infra da Verde) são
+// bem diferentes de 404/422 (dado de negócio genuinamente não encontrado),
+// mas até aqui todo `!res.ok` caía no mesmo logger.warn — token expirado
+// virava indistinguível de "CPF não encontrado" nos logs (achado ao vivo
+// 2026-09-18, investigando um bug que na real era outra coisa, mas quase
+// nos fez perder tempo culpando dado de teste em vez de credencial).
+// error (não warn) pra auth_ou_infra dar sinal mais forte pra alerta.
+function logHttpNaoOk(chamada: string, status: number, duracaoMs: number, extra: Record<string, unknown> = {}) {
+  const tipoErro = status === 401 || status === 403 || status >= 500 ? "auth_ou_infra" : "nao_encontrado";
+  const nivel = tipoErro === "auth_ou_infra" ? "error" : "warn";
+  logger[nivel](
+    { ...contextoAtual(), status, tipoErro, evento: "verde_chamada", chamada, resultado: "nao_ok", duracaoMs, ...extra },
+    `[verde] ${chamada}: HTTP não-ok`
+  );
+}
 
 interface ApenadoResponseVerde {
   codigo?: string;
@@ -84,7 +101,7 @@ export async function consultarApenadoPorRg(rg: string): Promise<DadosApenado> {
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "apenado", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] apenado: HTTP não-ok");
+      logHttpNaoOk("apenado", res.status, Date.now() - inicio);
       return { encontrado: false };
     }
     const corpo = (await res.json()) as ApenadoResponseVerde;
@@ -155,7 +172,7 @@ export async function consultarProcesso(numero: string): Promise<DadosProcesso> 
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "processo", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] processo: HTTP não-ok");
+      logHttpNaoOk("processo", res.status, Date.now() - inicio);
       return { encontrado: false };
     }
     const corpo = (await res.json()) as ProcessoResponseVerde;
@@ -185,13 +202,10 @@ interface PessoaResponseVerde {
     nomeSocial?: string;
     genero?: string;
     endereco?: string;
+    // Issue #127 — só cep é usado (pra alimentar consultarCep); a Verde
+    // devolve logradouro/bairro/municipio/uf também, mas ninguém lê isso
+    // em lógica do fluxo, e os ids equivalentes vêm de /cep, não daqui.
     enderecoDetalhado?: {
-      logradouro?: string;
-      numero?: string;
-      complemento?: string;
-      bairro?: string;
-      municipio?: string;
-      uf?: string;
       cep?: string;
     };
   };
@@ -214,7 +228,7 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
       nome: "Pessoa de Teste (mock)",
       genero: "Feminino",
       endereco: "Rua de Teste, 123 (mock)",
-      enderecoDetalhado: { bairro: "Centro", municipio: "Rio de Janeiro", uf: "RJ", cep: "20000-000" },
+      enderecoDetalhado: { cep: "20000-000" },
     };
   }
   const inicio = Date.now();
@@ -233,7 +247,7 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
       // aqui junto — mesmo tratamento genérico de status não-ok dos outros 2
       // métodos deste arquivo, sem distinguir motivo (repo pequeno, não vale
       // ramificação extra por enquanto).
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "pessoa", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] pessoa: HTTP não-ok");
+      logHttpNaoOk("pessoa", res.status, Date.now() - inicio);
       return { encontrado: false };
     }
     const corpo = (await res.json()) as PessoaResponseVerde;
@@ -250,6 +264,63 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "pessoa", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] pessoa: falha na chamada");
+    return { encontrado: false };
+  }
+}
+
+// bairro/municipio vêm ora null, ora objeto {id,...} (achado ao vivo
+// 2026-09-21, testando /cep com CEPs reais só uf veio populado) — leitura
+// defensiva, sem assumir shape fixo.
+interface CepResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: {
+    uf?: { id?: number } | null;
+    bairro?: { id?: number } | null;
+    municipio?: { id?: number } | null;
+  };
+}
+
+function idDeCampoCep(campo: { id?: number } | null | undefined): number | undefined {
+  return campo && typeof campo === "object" ? campo.id : undefined;
+}
+
+// Issue #127 — GET /cep/{cep}, separado de /pessoa: devolve ids de
+// uf/bairro/município (quando cadastrados) pra quem só tinha o nome em
+// texto via /pessoa. idBairro/idMunicipio ficam undefined quando a Verde
+// não tem esse dado pro CEP — não é erro, o CEP existe, só falta o
+// detalhe (aconteceu com os 2 CEPs reais testados nesta sessão).
+export async function consultarCep(cep: string): Promise<DadosCep> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    return { encontrado: true, idUf: 19 };
+  }
+  const inicio = Date.now();
+  try {
+    const res = await fetch(`${VERDE_API_URL}/cep/${encodeURIComponent(cep)}`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      logHttpNaoOk("cep", res.status, Date.now() - inicio);
+      return { encontrado: false };
+    }
+    const corpo = (await res.json()) as CepResponseVerde;
+    logger.info({ ...contextoAtual(), evento: "verde_chamada", chamada: "cep", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] cep: chamada concluída");
+    if (!corpo.dados) return { encontrado: false };
+    return {
+      encontrado: true,
+      idUf: idDeCampoCep(corpo.dados.uf),
+      idBairro: idDeCampoCep(corpo.dados.bairro),
+      idMunicipio: idDeCampoCep(corpo.dados.municipio),
+    };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "cep", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] cep: falha na chamada");
     return { encontrado: false };
   }
 }
@@ -326,7 +397,7 @@ export async function consultarOrgaosViolenciaDomestica(indicacaoRO: boolean, id
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "orgao-violencia-domestica", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] orgao-violencia-domestica: HTTP não-ok");
+      logHttpNaoOk("orgao-violencia-domestica", res.status, Date.now() - inicio);
       return { encontrado: false, orgaos: [] };
     }
     const corpo = (await res.json()) as OrgaoResponseVerde;
@@ -376,7 +447,7 @@ export async function consultarPlantaoVigente(): Promise<Plantao[]> {
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "plantao-vigente", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] plantao-vigente: HTTP não-ok");
+      logHttpNaoOk("plantao-vigente", res.status, Date.now() - inicio);
       return [];
     }
     const corpo = (await res.json()) as PlantaoResponseVerde;
@@ -427,7 +498,7 @@ export async function consultarOrgaosPlantaoViolenciaDomestica(idPlantao: number
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {
-      logger.warn({ ...contextoAtual(), status: res.status, evento: "verde_chamada", chamada: "orgao-plantao-violencia-domestica", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] orgao-plantao-violencia-domestica: HTTP não-ok");
+      logHttpNaoOk("orgao-plantao-violencia-domestica", res.status, Date.now() - inicio);
       return { encontrado: false, orgaos: [] };
     }
     logger.info({ ...contextoAtual(), evento: "verde_chamada", chamada: "orgao-plantao-violencia-domestica", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] orgao-plantao-violencia-domestica: chamada concluída");
@@ -511,7 +582,7 @@ export async function criarEncaminhamentoViolenciaDomestica(dados: DadosEncaminh
     });
     const corpo = (await res.json().catch(() => ({}))) as EncaminhamentoResponseVerde;
     if (!res.ok) {
-      logger.error({ ...contextoAtual(), status: res.status, corpo, evento: "verde_chamada", chamada: "encaminhamento", resultado: "nao_ok", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: HTTP não-ok");
+      logHttpNaoOk("encaminhamento", res.status, Date.now() - inicio, { corpo });
       return { sucesso: false, erro: corpo.mensagem ?? `HTTP ${res.status}` };
     }
     logger.info({ ...contextoAtual(), corpo, evento: "verde_chamada", chamada: "encaminhamento", resultado: "sucesso", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: chamada concluída");

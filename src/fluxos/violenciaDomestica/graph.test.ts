@@ -245,6 +245,23 @@ test("tem RO, CPF errado, digita o CPF novo direto (não 'Sim') na pergunta de r
   assert.equal((r as { statusFinal?: string }).statusFinal, "concluido", "CPF digitado direto deveria ser aceito e consultado, não tratado como 'não quer tentar de novo'");
 });
 
+// Issue #127 — depois de consultarPessoa, consultarCep enriquece
+// dadosPessoa.enderecoDetalhado com ids (idUf/idBairro/idMunicipio) via
+// CEP — mock de consultarCep só devolve idUf, mesmo racional non-blocking
+// de outras consultas informativas do fluxo.
+test("CPF válido → dadosPessoa.enderecoDetalhado ganha idUf via consultarCep, sem campos de texto (issue #127)", async () => {
+  const config = novoConfig();
+  await grafo.invoke({}, config);
+  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+  await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
+  const r = await grafo.invoke(new Command({ resume: "11111111111" }), config); // cpf
+  const dadosPessoa = (r as { dadosPessoa?: { enderecoDetalhado?: Record<string, unknown> } }).dadosPessoa;
+  assert.equal(dadosPessoa?.enderecoDetalhado?.idUf, 19, "mock de consultarCep deveria preencher idUf");
+  assert.equal(dadosPessoa?.enderecoDetalhado?.bairro, undefined, "não deveria mais existir campo de texto bairro");
+  assert.equal(dadosPessoa?.enderecoDetalhado?.municipio, undefined, "não deveria mais existir campo de texto municipio");
+});
+
 test("sem RO, CPF válido → conclui padrão, mensagem cita o órgão real (mock)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
