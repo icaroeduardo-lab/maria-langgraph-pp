@@ -2,6 +2,8 @@
 
 Ponte entre a **Tykhe** (chatbot) e o **Verde** (sistema da Defensoria Pública do RJ), construída com [LangGraph](https://langchain-ai.github.io/langgraphjs/) — cada fluxo de atendimento é um grafo de estados com pausa/retomada nativa.
 
+Vai contribuir? Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) (fluxo de issue/branch/commit/PR).
+
 ## Documentação
 
 - [`docs/arquitetura.md`](docs/arquitetura.md) — visão geral, decisões de infra (e o porquê de cada uma), persistência, observabilidade.
@@ -10,6 +12,7 @@ Ponte entre a **Tykhe** (chatbot) e o **Verde** (sistema da Defensoria Pública 
 - [`docs/integracao-verde.md`](docs/integracao-verde.md) — cada endpoint do Verde usado, shape real de resposta, bugs já encontrados ao vivo.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
 - [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
+- [`docs/padroes-issues.md`](docs/padroes-issues.md), [`docs/padroes-branch.md`](docs/padroes-branch.md), [`docs/padroes-commits.md`](docs/padroes-commits.md), [`docs/padroes-pull-request.md`](docs/padroes-pull-request.md) — convenções de contribuição (ver [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ## Rodando local
 
