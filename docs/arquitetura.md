@@ -8,6 +8,8 @@ Cada "conversa" é um **atendimento**: uma sequência de perguntas e respostas q
 
 ![Diagrama de componentes AWS](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/arquitetura.png)
 
+> O diagrama acima não mostra o CloudWatch — o Grafana também lê métricas e logs direto do CloudWatch (`cloudwatch:GetMetricData`/`GetMetricStatistics`/`ListMetrics`/`Describe*Alarm*` + logs, tudo **somente leitura**, via task role própria dele — ver `infra/terraform/grafana.tf`), além do datasource Postgres já representado. Ver seção Observabilidade abaixo.
+
 ## Por que LangGraph
 
 O fluxo de cada atendimento é uma máquina de estados com pausa/retomada: pergunta → espera resposta → decide a próxima pergunta a partir do que já sabe → repete até concluir. LangGraph modela isso nativamente:
@@ -57,11 +59,12 @@ Cada fluxo é uma pasta autocontida (`graph.ts`, `state.ts`, `api.ts`) — adici
 
 ## Persistência
 
-Tudo no **mesmo** Postgres (RDS `maria-chat-prod-pg`, acessado via RDS Proxy compartilhado com o stack antigo), 3 preocupações diferentes:
+Tudo no **mesmo** Postgres (RDS `maria-chat-prod-pg`, acessado via RDS Proxy compartilhado com o stack antigo), 4 preocupações diferentes:
 
 1. **Checkpoints do LangGraph** (`PostgresSaver`, tabelas próprias que a lib cria) — o estado de cada conversa em andamento, indexado por `thread_id` (= `chatId`). Sem `DATABASE_URL` (testes), cai num `MemorySaver` em memória.
 2. **Tabela `atendimentos`** (`chatId -> flowId` + colunas de desfecho) — o checkpointer do LangGraph indexa só por `thread_id`, sem separar por fluxo; sem essa tabela, o mesmo `chatId` usado em 2 fluxos diferentes colidiria no mesmo checkpoint. Também guarda `status_final`/`motivo_handoff`/`tokens_*` pra consulta SQL direta (Grafana), sem depender só de CloudWatch Logs.
 3. **`perguntas`/`assuntos_verde`/`flow_assuntos`** — árvore de perguntas do catálogo do Verde, coletada uma vez (`scripts/coletarArvorePerguntasVerde.ts`), usada pelo orquestrador pra desambiguação e retrieval.
+4. **`fluxo_embeddings`** (extensão `vector`/pgvector, `src/shared/embeddingsFluxos.ts`) — embedding da descrição de cada fluxo do catálogo, usado pelo orquestrador pra busca por similaridade (`embedding <=> $1::vector`) na hora de decidir qual fluxo melhor casa com o relato livre do usuário.
 
 Todas as tabelas são criadas via `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS` no código (sem ferramenta de migração formal — repo pequeno, não justificou ainda). Desde a issue #114, essa criação roda no **startup do processo** (bloqueia o health check até terminar), não mais na primeira request de negócio — evita o deploy ficar "saudável" antes do schema estar pronto de verdade.
 
@@ -73,7 +76,8 @@ Bearer token fixo (`API_KEY`), um valor só por ambiente, guardado em Secrets Ma
 
 - **Logs estruturados** (pino, JSON) — todo log de negócio carrega `chatId`/`fluxoId` pra correlacionar uma conversa inteira entre requests diferentes (`reqId` sozinho só correlaciona 1 request). `evento` é um campo fixo (`atendimento_criado`, `pergunta_enviada`, `atendimento_finalizado`, `verde_chamada`...) — filtra por isso, não pelo texto livre da mensagem.
 - **CloudWatch Logs Insights** — consulta os logs acima. Dashboard versionado em `infra/grafana/dashboards/observabilidade.json`.
-- **Datasource Postgres no Grafana** — consulta direto a tabela `atendimentos` via SQL (joins/agregações que Logs Insights não faz bem), usuário **somente leitura** dedicado (`grafana_readonly`).
+- **Datasource CloudWatch no Grafana** — o Grafana chama a API do CloudWatch direto (métricas e logs), com task role própria de **somente leitura** (`cloudwatch:GetMetricData`/`GetMetricStatistics`/`ListMetrics`/`Describe*Alarm*` + logs, ver `infra/terraform/grafana.tf`) — não fica limitado ao Logs Insights manual, os dashboards já plotam isso direto.
+- **Datasource Postgres no Grafana** — consulta direto a tabela `atendimentos` via SQL (joins/agregações que CloudWatch não faz bem), usuário **somente leitura** dedicado (`grafana_readonly`).
 - **Alertas** (`infra/grafana/alerts/saude-operacional.json`) — host saudável, taxa de erro 5xx, CPU alta, latência alta, por ambiente (prod/release).
 - **Publish automatizado** (`.github/workflows/publish-grafana.yml`) — dashboards/alertas versionados no repo são aplicados no Grafana automaticamente a cada push que toque `infra/grafana/**`. Sem isso, o que está no repo e o que está publicado divergem silenciosamente (já aconteceu 2x numa mesma sessão de trabalho).
 - **Detecção de drift de Terraform** (`.github/workflows/terraform-drift.yml`) — roda `terraform plan` e falha se tiver mudança pendente, separado dos workflows de deploy de propósito (drift de infra não deve travar um fix de bug simples de subir).
