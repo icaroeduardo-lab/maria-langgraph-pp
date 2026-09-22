@@ -9,6 +9,7 @@ Ponte entre a **Tykhe** (chatbot) e o **Verde** (sistema da Defensoria Pública 
 - [`docs/fluxo-violencia-domestica.md`](docs/fluxo-violencia-domestica.md) — regras de negócio do fluxo violência doméstica.
 - [`docs/integracao-verde.md`](docs/integracao-verde.md) — cada endpoint do Verde usado, shape real de resposta, bugs já encontrados ao vivo.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
+- [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
 
 ## Rodando local
 
@@ -20,7 +21,7 @@ pnpm dev
 
 Variáveis principais (todas opcionais em dev — ausentes = modo mock): `VERDE_API_URL`, `VERDE_JWT_TOKEN`, `VERDE_CLIENT_ID`, `DATABASE_URL`, `API_KEY` (obrigatória, sem default). `EXTRACAO_LIVRE_IA=true` liga a extração por IA opcional no fluxo pessoa presa (desligada por padrão).
 
-`GET /docs` — Swagger UI com o contrato HTTP completo. `pnpm test` — testes (não precisa de `.env`, roda em modo mock/memória).
+`GET /docs` — Swagger UI com o contrato HTTP completo. `pnpm test` — testes (não precisa de `.env`, roda em modo mock/memória; detalhes em [`docs/testes.md`](docs/testes.md)).
 
 ## Estrutura
 
