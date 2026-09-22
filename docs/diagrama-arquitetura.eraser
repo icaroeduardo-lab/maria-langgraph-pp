@@ -1,0 +1,79 @@
+// Diagrama de arquitetura AWS do maria-langgraph-pp.
+// Como usar: cole este conteúdo em https://app.eraser.io (New diagram >
+// Cloud architecture diagram > cole no editor). Se algum ícone "aws-..." não
+// existir no catálogo do Eraser, ele cai num box genérico — ajuste o nome do
+// ícone direto na UI deles (painel lateral tem busca de ícone).
+
+title Maria — Arquitetura AWS
+
+// ── Fora da AWS ────────────────────────────────────────────────────────────
+Tykhe [icon: aws-client, color: gray]
+Usuario [label: "Usuário (navegador)", icon: aws-client, color: gray]
+Verde [label: "Verde (Defensoria RJ)", icon: aws-client, color: gray]
+GitHub [icon: github, color: black]
+
+AWS [color: orange] {
+  // Edge — CloudFront é serviço global, NÃO vive dentro da VPC.
+  CloudFrontApi [label: "CloudFront (api)", icon: aws-cloudfront]
+  CloudFrontGrafana [label: "CloudFront (grafana)", icon: aws-cloudfront]
+
+  // VPC compartilhada — NÃO é gerenciada por este repo. Vem de um stack
+  // Terraform antigo (data.terraform_remote_state.old, ver network.tf) —
+  // este repo só lê o vpc_id/subnets/security group do RDS Proxy de lá e
+  // cria os próprios security groups (ALB, tasks, grafana) dentro dela.
+  VPC [label: "VPC (compartilhada — stack antigo)", color: purple] {
+    ALB [label: "Application Load Balancer", icon: aws-elastic-load-balancing]
+
+    ECS [label: "ECS Fargate", color: blue] {
+      ApiProd [label: "api (prod)", icon: aws-fargate]
+      ApiRelease [label: "api (release)", icon: aws-fargate]
+      Grafana [label: "grafana", icon: aws-fargate]
+    }
+
+    RdsProxy [label: "RDS Proxy (compartilhado)", icon: aws-rds]
+    Postgres [label: "RDS Postgres\nmaria-chat-prod-pg", icon: aws-rds]
+  }
+
+  // Serviços regionais — fora da VPC (chamados via API da AWS, não IP interno).
+  SecretsManager [icon: aws-secrets-manager]
+  ECR [label: "ECR (imagem docker)", icon: aws-elastic-container-registry]
+  S3Tfstate [label: "S3: tfstate (privado)", icon: aws-simple-storage-service]
+  S3Docs [label: "S3: docs (leitura pública)", icon: aws-simple-storage-service]
+  DynamoLock [label: "DynamoDB (lock do state)", icon: aws-dynamodb]
+  OIDC [label: "IAM OIDC Provider + Role", icon: aws-identity-and-access-management]
+}
+
+// ── Conexões: tráfego real ──────────────────────────────────────────────────
+Tykhe > AWS.CloudFrontApi: HTTPS
+Usuario > AWS.CloudFrontGrafana: HTTPS
+AWS.CloudFrontApi > AWS.VPC.ALB: header X-Maria-App
+AWS.CloudFrontGrafana > AWS.VPC.ALB: header X-Maria-App
+AWS.VPC.ALB > AWS.VPC.ECS.ApiProd
+AWS.VPC.ALB > AWS.VPC.ECS.ApiRelease
+AWS.VPC.ALB > AWS.VPC.ECS.Grafana
+
+AWS.VPC.ECS.ApiProd > AWS.VPC.RdsProxy
+AWS.VPC.ECS.ApiRelease > AWS.VPC.RdsProxy
+AWS.VPC.ECS.Grafana > AWS.VPC.RdsProxy
+AWS.VPC.RdsProxy > AWS.VPC.Postgres
+
+AWS.VPC.ECS.ApiProd > Verde: VERDE_JWT_TOKEN
+AWS.VPC.ECS.ApiRelease > Verde: VERDE_JWT_TOKEN
+
+AWS.VPC.ECS.ApiProd > AWS.SecretsManager: lê credenciais
+AWS.VPC.ECS.ApiRelease > AWS.SecretsManager: lê credenciais
+AWS.VPC.ECS.Grafana > AWS.SecretsManager: lê credenciais
+
+// ── Conexões: CI/CD e IaC ───────────────────────────────────────────────────
+GitHub > AWS.OIDC: assume role (sem chave fixa)
+AWS.OIDC > AWS.ECR: push da imagem
+AWS.OIDC > AWS.VPC.ECS.ApiProd: força novo deployment
+AWS.OIDC > AWS.VPC.ECS.ApiRelease: força novo deployment
+GitHub > AWS.S3Tfstate: terraform plan/apply
+GitHub > AWS.DynamoLock: lock do state
+AWS.ECR > AWS.VPC.ECS.ApiProd: pull da imagem
+AWS.ECR > AWS.VPC.ECS.ApiRelease: pull da imagem
+
+// Upload de imagens da doc ainda é MANUAL (aws s3 cp) — sem workflow de CI
+// pra isso hoje. Seta pontilhada de propósito, não confundir com automação.
+GitHub > AWS.S3Docs: upload manual (aws s3 cp, ainda sem CI)
