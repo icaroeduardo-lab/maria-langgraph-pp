@@ -9,9 +9,12 @@ Vai contribuir? Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) (fluxo de issue/branch/
 - [`docs/arquitetura.md`](docs/arquitetura.md) — visão geral, decisões de infra (e o porquê de cada uma), persistência, observabilidade.
 - [`docs/fluxo-pessoa-presa.md`](docs/fluxo-pessoa-presa.md) — regras de negócio do fluxo pessoa presa.
 - [`docs/fluxo-violencia-domestica.md`](docs/fluxo-violencia-domestica.md) — regras de negócio do fluxo violência doméstica.
+- [`docs/fluxo-orquestrador.md`](docs/fluxo-orquestrador.md) — como a classificação automática (relato livre → flowId) funciona.
 - [`docs/integracao-verde.md`](docs/integracao-verde.md) — cada endpoint do Verde usado, shape real de resposta, bugs já encontrados ao vivo.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
 - [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
+- [`docs/scripts.md`](docs/scripts.md) — o que cada script em `scripts/` faz e quando rodar.
+- [`docs/novo-fluxo.md`](docs/novo-fluxo.md) — guia passo a passo pra implementar um fluxo novo.
 - [`docs/padroes-issues.md`](docs/padroes-issues.md), [`docs/padroes-branch.md`](docs/padroes-branch.md), [`docs/padroes-commits.md`](docs/padroes-commits.md), [`docs/padroes-pull-request.md`](docs/padroes-pull-request.md) — convenções de contribuição (ver [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 - [`docs/harness.md`](docs/harness.md) — agents/skills/hooks/commands do Claude Code neste repo.
 
