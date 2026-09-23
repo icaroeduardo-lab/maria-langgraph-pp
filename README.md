@@ -13,6 +13,7 @@ Vai contribuir? Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) (fluxo de issue/branch/
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
 - [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
 - [`docs/padroes-issues.md`](docs/padroes-issues.md), [`docs/padroes-branch.md`](docs/padroes-branch.md), [`docs/padroes-commits.md`](docs/padroes-commits.md), [`docs/padroes-pull-request.md`](docs/padroes-pull-request.md) — convenções de contribuição (ver [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+- [`docs/harness.md`](docs/harness.md) — agents/skills/hooks/commands do Claude Code neste repo.
 
 ## Rodando local
 
