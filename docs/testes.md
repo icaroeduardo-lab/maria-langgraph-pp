@@ -17,6 +17,7 @@ pnpm test:integracao   # test-integracao/*.test.ts — chama IA real (Bedrock)
 | HTTP por fluxo | `src/fluxos/*/http.test.ts` | Conteúdo/texto de pergunta de cada fluxo específico via `app.inject()`. |
 | HTTP genérico | `test/app.test.ts` | Mecânica das rotas (auth, health, idempotência, status code, HATEOAS) — sem acoplar em texto de negócio de nenhum fluxo. Usa violência doméstica só como fixture (é o fluxo mais rápido de concluir). |
 | Contrato Tykhe | `test/contratoTykhe.test.ts` | Shape da resposta HTTP que a Tykhe consome (ver `docs/contrato-tykhe.md`). |
+| TTL de inatividade | `test/ttlInatividade.test.ts` | Confirmação de continuidade e expiração após `TTL_INATIVIDADE_HORAS` (issue #166) — usa `TTL_INATIVIDADE_HORAS=0` pra forçar expiração determinística, sem mockar `Date`. |
 | Orquestrador | `test/orquestrador.test.ts`, `src/orquestrador/graph.test.ts` | Classificação/desambiguação de relato livre. |
 | Auxiliares | `src/shared/*.test.ts` | `embeddingsFluxos`, `perguntasDb`, `tokensAcumulados` isolados. |
 | Integração real com IA | `test-integracao/*.test.ts` | Chama Bedrock de verdade (classificar, desambiguar, extrair, parentesco, reescrever, sumarizar) — não roda no `pnpm test` normal nem no CI padrão, só sob demanda (custa tempo/dinheiro real). |
