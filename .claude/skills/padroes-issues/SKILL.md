@@ -28,6 +28,7 @@ Tipos: `[FEATURE]`, `[ENHANCEMENT]`, `[BUG]`, `[TECH]`.
 
 - **Cenários BDD** — sempre que houver comportamento descrito (sucesso + erro), formato Gherkin.
 - **Requisitos Não Funcionais**, **Dependências**, **Fora de Escopo**.
+- **Diagrama explicativo (opcional)** — fluxo/arquitetura/sequência pode ganhar diagrama: gerar com o agente `diagram-specialist` (Mermaid), nunca commitar a fonte, subir o PNG pro bucket `s3://maria-langgraph-pp-docs-185327115563/diagramas/`, embutir a URL pública na issue. Detalhe completo em [`docs/padroes-issues.md`](../../../docs/padroes-issues.md).
 
 ## Regras para o assistente de IA
 
