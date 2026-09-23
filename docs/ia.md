@@ -2,7 +2,13 @@
 
 Toda chamada de IA (Bedrock) do sistema mora aqui — 6 módulos, cada um resolvendo 1 problema específico. Nenhum fluxo (`src/fluxos/*/graph.ts`) ou o orquestrador chama Bedrock direto; todos passam por um destes.
 
+## Visão de conjunto — quem chama qual módulo
+
+![Mapa dos módulos de IA](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/mapa-modulos-ia.png)
+
 ## Padrão comum a todos os módulos
+
+![Padrão comum de um módulo de IA](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/padrao-comum-ia.png)
 
 - **Modelo**: `ChatBedrockConverse`, via `BEDROCK_MODEL_ID` (default `anthropic.claude-3-haiku-20240307-v1:0`) e `AWS_REGION` (default `us-east-1`). Instância própria por módulo — repo pequeno não justifica factory compartilhado.
 - **Retry**: 3 tentativas (`TENTATIVAS_RETRY_IA`) antes de desistir — absorve instabilidade passageira do Bedrock (throttle, timeout de rede), não mascara erro real.
