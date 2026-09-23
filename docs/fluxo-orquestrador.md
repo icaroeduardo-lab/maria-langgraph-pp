@@ -4,6 +4,8 @@ Alternativa a `POST /atendimentos` pra quem **não sabe de antemão** qual `flow
 
 Grafo próprio (`src/orquestrador/graph.ts`), rota HTTP dedicada (`POST /atendimentos/orquestrador`, `src/rotas/orquestrador.ts`).
 
+Usa 4 dos 6 módulos de `src/ia/` (`classificar`, `classificarFluxos`, `desambiguar`, `sumarizar`) — **só o orquestrador chama esses 4**, nenhum fluxo de negócio (`fluxos/*/graph.ts`) usa. Os outros 2 módulos (`reescrever`, `extrair`) são o inverso: usados por fluxos, nunca pelo orquestrador. Sem sobreposição — ver `docs/ia.md` pro que cada módulo faz.
+
 ![Diagrama do fluxo orquestrador](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/orquestrador.png)
 
 ## Passo a passo
