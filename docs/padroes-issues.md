@@ -38,6 +38,12 @@ Cenário: <nome>
 - **Requisitos Não Funcionais** — performance (ex: API < 500ms), segurança (permissões, dados sensíveis), acessibilidade (teclado, leitores de tela, WCAG), observabilidade (logs, métricas).
 - **Dependências** — endpoints necessários, serviços, migrações de banco.
 - **Fora de Escopo** — o que explicitamente NÃO está incluído.
+- **Diagrama explicativo (opcional)** — se a issue descreve fluxo de negócio, arquitetura ou sequência de integração, oferecer criar um diagrama:
+  1. Gerar com o agente `diagram-specialist` (Mermaid, estilo fixo — losango = decisão, paralelogramo = chamada externa, verde = sucesso, vermelho = handoff/erro).
+  2. **Nunca** commitar o `.mmd`/`.png` fonte no git — só o resultado publicado.
+  3. Subir o PNG final pro bucket de docs: `aws s3 cp <nome>.png s3://maria-langgraph-pp-docs-185327115563/diagramas/<nome>.png --content-type image/png --region us-east-1`.
+  4. Confirmar `200` na URL pública antes de referenciar (`curl -s -o /dev/null -w "%{http_code}\n" <url>`).
+  5. Embutir no corpo da issue: `![descrição](https://maria-langgraph-pp-docs-185327115563.s3.amazonaws.com/diagramas/<nome>.png)`.
 
 ## DoR / DoD
 

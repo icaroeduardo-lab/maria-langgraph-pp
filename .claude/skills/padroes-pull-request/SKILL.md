@@ -36,6 +36,10 @@ Closes #<numero>
 ## Observações (opcional)
 ```
 
+## Diagrama explicativo (opcional)
+
+Mudança de fluxo/arquitetura/sequência pode ganhar diagrama no corpo do PR: gerar com o agente `diagram-specialist` (Mermaid), nunca commitar a fonte, subir o PNG pro bucket `s3://maria-langgraph-pp-docs-185327115563/diagramas/`, embutir a URL pública. Detalhe completo em [`docs/padroes-pull-request.md`](../../../docs/padroes-pull-request.md).
+
 ## Checklist antes de abrir
 
 Branch conforme padrão · título `:emoji: tipo:` · `Closes #N` · testes passando · critérios de aceitação da issue atendidos · sem segredos no diff.
