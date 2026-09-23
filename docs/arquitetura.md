@@ -91,6 +91,7 @@ Bearer token fixo (`API_KEY`), um valor só por ambiente, guardado em Secrets Ma
 - **Deploy via GitHub Actions com OIDC** (sem chave AWS fixa guardada como secret) — token de curta duração emitido pelo GitHub a cada run, `assume-role` restrito pelo `sub` do token a só `main`/`develop`.
 - **Tag semver + GitHub Release automáticos** (issue #145) — todo deploy que chega em `main` com sucesso ganha uma tag `vX.Y.Z` (job `tag` em `deploy-prod.yml`): bump calculado a partir dos tipos de commit desde a última tag (`feat` → minor, `BREAKING CHANGE` no corpo → major, qualquer outro caso → patch), Release criada com changelog gerado automaticamente (`gh release create --generate-notes`).
 - **Secrets fora do Terraform** — todo valor real (token do Verde, senha do Postgres, API_KEY) é preenchido manualmente via `aws secretsmanager put-secret-value` depois do `apply` (o `.tf` só cria o secret vazio, com placeholder `"PREENCHER"`) — decisão deliberada pra nunca ter segredo real em texto plano no state/código.
+- **Interface VPC Endpoint pro Bedrock** (`infra/terraform/bedrock-endpoint.tf`, issue #141) — tráfego das tasks pro Bedrock fica 100% dentro da VPC, sem passar pelo NAT Gateway/rota pública. Custo fixo (~US$14,60/mês, 2 AZs) supera a economia esperada no NAT pro volume de tráfego atual — decisão de arquitetura autorizada mesmo assim, não motivada por custo.
 
 ## O que NÃO tem (de propósito, por enquanto)
 
