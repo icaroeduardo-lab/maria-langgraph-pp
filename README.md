@@ -14,7 +14,7 @@ Vai contribuir? Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) (fluxo de issue/branch/
 - [`docs/ia.md`](docs/ia.md) — cada módulo de IA (Bedrock): o que faz, padrão comum de retry/fallback/mock, flags de ambiente.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
 - [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
-- [`docs/scripts.md`](docs/scripts.md) — o que cada script em `scripts/` faz e quando rodar.
+- [`scripts/README.md`](scripts/README.md) — o que cada script em `scripts/` faz e quando rodar (não é doc da aplicação em si, fica junto do tooling).
 - [`docs/novo-fluxo.md`](docs/novo-fluxo.md) — guia passo a passo pra implementar um fluxo novo.
 - [`docs/padroes-issues.md`](docs/padroes-issues.md), [`docs/padroes-branch.md`](docs/padroes-branch.md), [`docs/padroes-commits.md`](docs/padroes-commits.md), [`docs/padroes-pull-request.md`](docs/padroes-pull-request.md) — convenções de contribuição (ver [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 - [`docs/harness.md`](docs/harness.md) — agents/skills/hooks/commands do Claude Code neste repo.
