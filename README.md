@@ -11,6 +11,7 @@ Vai contribuir? Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) (fluxo de issue/branch/
 - [`docs/fluxo-violencia-domestica.md`](docs/fluxo-violencia-domestica.md) — regras de negócio do fluxo violência doméstica.
 - [`docs/fluxo-orquestrador.md`](docs/fluxo-orquestrador.md) — como a classificação automática (relato livre → flowId) funciona.
 - [`docs/integracao-verde.md`](docs/integracao-verde.md) — cada endpoint do Verde usado, shape real de resposta, bugs já encontrados ao vivo.
+- [`docs/ia.md`](docs/ia.md) — cada módulo de IA (Bedrock): o que faz, padrão comum de retry/fallback/mock, flags de ambiente.
 - [`docs/contrato-tykhe.md`](docs/contrato-tykhe.md) — o que a API expõe pra Tykhe, schema da resposta.
 - [`docs/testes.md`](docs/testes.md) — como os testes são organizados e rodados, modo mock, o que roda no CI.
 - [`docs/scripts.md`](docs/scripts.md) — o que cada script em `scripts/` faz e quando rodar.
