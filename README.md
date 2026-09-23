@@ -27,7 +27,7 @@ echo "API_KEY=dev-local" > .env   # sem VERDE_JWT_TOKEN/DATABASE_URL, cai em mod
 pnpm dev
 ```
 
-Variáveis principais (todas opcionais em dev — ausentes = modo mock): `VERDE_API_URL`, `VERDE_JWT_TOKEN`, `VERDE_CLIENT_ID`, `DATABASE_URL`, `API_KEY` (obrigatória, sem default). `EXTRACAO_LIVRE_IA=true` liga a extração por IA opcional no fluxo pessoa presa (desligada por padrão).
+Variáveis principais (todas opcionais em dev — ausentes = modo mock): `VERDE_API_URL`, `VERDE_JWT_TOKEN`, `VERDE_CLIENT_ID`, `DATABASE_URL`, `API_KEY` (obrigatória, sem default). `EXTRACAO_LIVRE_IA=true` liga a extração por IA opcional no fluxo pessoa presa (desligada por padrão). `TTL_INATIVIDADE_HORAS` (default `24`) — horas de inatividade antes de perguntar se a pessoa quer continuar o atendimento (issue #166).
 
 `GET /docs` — Swagger UI com o contrato HTTP completo. `pnpm test` — testes (não precisa de `.env`, roda em modo mock/memória; detalhes em [`docs/testes.md`](docs/testes.md)).
 

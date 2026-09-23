@@ -25,7 +25,7 @@ A Tykhe é o único consumidor esperado desta API — chamada servidor-a-servido
   "resposta": "texto da pergunta atual, ou mensagem final",
   "tipoResposta": "texto" | "sim_nao" | "opcoes",
   "opcoes": ["Sim", "Não"],          // só quando tipoResposta:"sim_nao" (ou "opcoes")
-  "status": "em_andamento" | "concluido" | "handoff_humano",
+  "status": "em_andamento" | "concluido" | "handoff_humano" | "expirado",
   "flowId": "uuid — diz qual schema esperar em `metadados`",
   "metadados": { /* específico por fluxo — ver docs/fluxo-*.md */ },
   "dadosColetados": { "cpf": "..." },  // cross-fluxo, opcional
@@ -39,7 +39,8 @@ A Tykhe é o único consumidor esperado desta API — chamada servidor-a-servido
 
 ### Regras de leitura pra quem consome
 
-- **`status` decide o resto do shape**: `em_andamento` sempre tem `tipoResposta`/`opcoes?`/`_links.responder`; `concluido`/`handoff_humano` nunca tem `_links.responder` (não tem mais nada pra responder) e sempre tem `tokensGastos`.
+- **`status` decide o resto do shape**: `em_andamento` sempre tem `tipoResposta`/`opcoes?`/`_links.responder`; `concluido`/`handoff_humano`/`expirado` nunca tem `_links.responder` (não tem mais nada pra responder) e sempre tem `tokensGastos`.
+- **`status: "expirado"` (issue #166)**: atendimento parado por mais de `TTL_INATIVIDADE_HORAS` (default 24h) — antes de chegar aqui, a Tykhe recebe uma pergunta `tipoResposta: "sim_nao"` perguntando se a pessoa quer continuar de onde parou. Se ela responder `"false"` (não quer), o atendimento vira `expirado` e o `chatId` fica bloqueado (`409` em qualquer chamada nova nele) — pra continuar, a Tykhe precisa criar um atendimento novo com `chatId` diferente. Se responder `"true"` (quer continuar), a resposta original que ela tinha mandado (a que disparou a pergunta de confirmação) é processada normalmente, sem perdê-la.
 - **`tipoResposta: "sim_nao"`**: a resposta esperada é literalmente `"true"`/`"false"` (não `"Sim"`/`"Não"` em texto — embora o backend tolere isso também, ver "tolerâncias" nos docs de cada fluxo). `opcoes` sempre vem `["Sim", "Não"]` nesse caso, útil pra montar botões.
 - **`metadados` muda de shape por `flowId`** — sempre presente (mesmo vazio `{}` na 1ª pergunta), mas os campos dependem de qual fluxo. Ver `docs/fluxo-pessoa-presa.md` / `docs/fluxo-violencia-domestica.md`, ou o schema exato em `src/fluxos/*/api.ts`.
 - **`resposta` no `concluido`/`handoff_humano`** é a mensagem final pro usuário — pode variar por motivo de handoff (alguns fluxos customizam por desfecho, `mensagemFinal` no state).
