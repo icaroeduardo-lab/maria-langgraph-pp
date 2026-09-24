@@ -198,36 +198,53 @@ test("tem RO, CPF errado 1x depois acerta → conclui normal (issue #72)", async
   assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
 });
 
-test("tem RO, CPF errado, responde 'Não' quer tentar de novo → handoff_humano, motivo cpf_nao_encontrado (issue #72)", async () => {
+// Issue #171 — esgotar tentativas de CPF não vira mais handoff direto: entra
+// no subgrafo de cadastro (pede nome + data de nascimento, cadastra no
+// Verde). Sucesso segue o fluxo normal com o idPessoa novo; falha (aqui
+// simulada via MOCK_CADASTRO_FALHA) vira handoff_humano, motivo falha_cadastro.
+test("tem RO, CPF errado, responde 'Não' quer tentar de novo → entra em cadastro, sucesso conclui normalmente (issue #171)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   await grafo.invoke(new Command({ resume: "true" }), config); // tem RO
   await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf errado
-  const r = await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo
-  assert.equal(pergunta(r), undefined);
-  assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
-  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "cpf_nao_encontrado");
-  assert.match((r as { mensagemFinal?: string }).mensagemFinal ?? "", /Não consegui localizar seus dados/);
+  const r1 = await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo → entra em cadastro
+  assert.match(pergunta(r1)?.pergunta ?? "", /qual o seu nome completo/);
+  const r2 = await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
+  assert.match(pergunta(r2)?.pergunta ?? "", /data de nascimento/);
+  const r3 = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastra
+  assert.equal(pergunta(r3), undefined);
+  assert.equal((r3 as { statusFinal?: string }).statusFinal, "concluido");
+  assert.equal((r3 as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
 });
 
-test("tem RO, esgota as 3 tentativas de CPF → handoff_humano, motivo cpf_nao_encontrado (issue #72)", async () => {
-  const config = novoConfig();
-  await grafo.invoke({}, config);
-  await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
-  await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
-  await grafo.invoke(new Command({ resume: "true" }), config); // tem RO → pausa pedirCpf
-  const t1 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 1
-  assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
-  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
-  const t2 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 2
-  assert.match(pergunta(t2)?.pergunta ?? "", /tentativa 2 de 3/);
-  await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
-  const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 3, esgotou
-  assert.equal(pergunta(r), undefined, "esgotou as 3 tentativas — não deveria perguntar de novo");
-  assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
-  assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "cpf_nao_encontrado");
+test("tem RO, esgota as 3 tentativas de CPF → entra em cadastro; cadastro falha → handoff_humano, motivo falha_cadastro (issue #171)", async () => {
+  const original = process.env.MOCK_CADASTRO_FALHA;
+  process.env.MOCK_CADASTRO_FALHA = "true";
+  try {
+    const config = novoConfig();
+    await grafo.invoke({}, config);
+    await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
+    await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
+    await grafo.invoke(new Command({ resume: "true" }), config); // tem RO → pausa pedirCpf
+    const t1 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 1
+    assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
+    await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
+    const t2 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 2
+    assert.match(pergunta(t2)?.pergunta ?? "", /tentativa 2 de 3/);
+    await grafo.invoke(new Command({ resume: "Sim" }), config); // quer tentar de novo → pausa pedirCpf de novo
+    const t3 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 3, esgotou → entra em cadastro
+    assert.match(pergunta(t3)?.pergunta ?? "", /qual o seu nome completo/, "esgotou as 3 tentativas de CPF — deveria entrar em cadastro, não perguntar CPF de novo");
+    await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
+    const r = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastro falha (mock)
+    assert.equal(pergunta(r), undefined);
+    assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
+    assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "falha_cadastro");
+    assert.match((r as { mensagemFinal?: string }).mensagemFinal ?? "", /Não consegui localizar nem cadastrar/);
+  } finally {
+    process.env.MOCK_CADASTRO_FALHA = original;
+  }
 });
 
 // Issue #77 — mesmo bug real que motivou a #54 no RG: se a pessoa manda o
@@ -275,16 +292,20 @@ test("sem RO, CPF válido → conclui padrão, mensagem cita o órgão real (moc
   assert.match((r as { resposta?: string; mensagemFinal?: string }).mensagemFinal ?? "", /Coordenação de Defesa/);
 });
 
-// Sem RO sempre tem fallback no Verde (NUDEM > núcleo > DP única) — mesmo
-// com CPF não encontrado, mock não simula "sem órgão" nesse ramo (só existe
-// documentado com RO:true).
-test("sem RO, CPF não encontrado no Verde → ainda assim encontra órgão (fallback do Verde)", async () => {
+// Issue #171 — CPF não encontrado entra em cadastro (não tenta mais achar
+// órgão com idPessoa=0). Depois de cadastrar com sucesso, sem RO sempre tem
+// fallback no Verde (NUDEM > núcleo > DP única) — conclui normal.
+test("sem RO, CPF não encontrado no Verde → entra em cadastro, sucesso encontra órgão (fallback do Verde)", async () => {
   const config = novoConfig();
   await grafo.invoke({}, config);
   await grafo.invoke(new Command({ resume: "true" }), config); // é vítima
   await grafo.invoke(new Command({ resume: "false" }), config); // sem processo
   await grafo.invoke(new Command({ resume: "false" }), config); // sem RO
-  const r = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+  const t1 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
+  await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo → entra em cadastro
+  await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
+  const r = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastra
+  assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
   assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
   assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");
 });

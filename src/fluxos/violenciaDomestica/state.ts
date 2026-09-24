@@ -35,6 +35,14 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // vez de "Sim") já é reconhecido pelo formato, mesmo padrão de
   // digitouRgDireto em pessoaPresa/state.ts (issue #54).
   digitouCpfDireto: Annotation<boolean | undefined>,
+  // Issue #171 — campos do subgrafo subgrafos/cadastroPessoa/, embutido
+  // quando o CPF esgota tentativas sem achar a pessoa. Precisam existir
+  // aqui (mesmo nome) pra LangGraph compartilhar o canal com o subgrafo —
+  // sem isso, o subgrafo não teria onde escrever nome/dataNascimento/
+  // cadastroErro. Nenhum fluxo além do de cadastro os lê.
+  nome: Annotation<string | undefined>,
+  dataNascimento: Annotation<string | undefined>,
+  cadastroErro: Annotation<string | undefined>,
   // ids de plantão(ões) vigente(s) agora (consultarPlantaoVigente) — vazio
   // = fora de horário de plantão, usa consulta de órgão normal. Não vazio =
   // usa consultarOrgaosPlantaoViolenciaDomestica em vez da normal.
@@ -52,10 +60,13 @@ export const ViolenciaDomesticaState = Annotation.Root({
   // só preenchido quando statusFinal:"handoff_humano". falha_encaminhamento
   // = achou o órgão certo mas o POST de encaminhamento de verdade falhou —
   // não inventa sucesso pro usuário, manda pra atendente confirmar.
-  // cpf_nao_encontrado (issue #72) = esgotou as 3 tentativas de CPF sem
-  // achar a pessoa — motivo específico, não confunde com "sem_orgao_disponivel"
-  // (que é pra pessoa ENCONTRADA sem órgão disponível pra ela).
-  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | "falha_encaminhamento" | "cpf_nao_encontrado" | undefined>,
+  // falha_cadastro (issue #171) = CPF esgotou tentativas (não encontrado) e
+  // o cadastro novo no Verde (subgrafo cadastroPessoa) também falhou — não
+  // inventa sucesso, manda pra atendente confirmar manualmente. Substitui o
+  // antigo "cpf_nao_encontrado" (issue #72): antes, esgotar tentativas já
+  // virava handoff direto; agora tenta cadastrar primeiro, só vira handoff
+  // se o cadastro em si falhar.
+  motivoHandoff: Annotation<"nao_e_vitima" | "sem_orgao_disponivel" | "falha_encaminhamento" | "falha_cadastro" | undefined>,
   // só preenchido quando statusFinal:"concluido".
   tipoEncaminhamento: Annotation<"padrao" | "urgente" | undefined>,
   // texto final específico do desfecho — sobrescreve o texto genérico

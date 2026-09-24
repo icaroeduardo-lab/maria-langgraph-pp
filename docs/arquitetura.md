@@ -39,6 +39,7 @@ src/
     violenciaDomestica/ # idem
     padrao/              # grafo genérico (1 nó, conclui na hora) pra categoria sem fluxo próprio ainda
   orquestrador/        # classifica um relato livre pro flowId certo (ver docs/contrato-tykhe.md)
+  subgrafos/           # StateGraph reaproveitável, sem flowId próprio — embutido como nó dentro de um fluxo (ver docs/novo-fluxo.md)
   integracoes/
     verde.ts            # toda chamada HTTP pro Verde mora aqui (ver docs/integracao-verde.md)
   ia/                  # chamadas de IA (Bedrock): reescrever pergunta, extrair campos, classificar, sumarizar

@@ -6,6 +6,7 @@ import type {
   OrgaoAtendimento,
   OrgaosViolenciaDomestica,
   Plantao,
+  ResultadoCadastroPessoa,
   ResultadoEncaminhamento,
 } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
@@ -589,6 +590,62 @@ export async function criarEncaminhamentoViolenciaDomestica(dados: DadosEncaminh
     return { sucesso: true, id: corpo.dados?.id };
   } catch (err) {
     logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "encaminhamento", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] encaminhamento: falha na chamada");
+    return { sucesso: false, erro: "falha na chamada ao Verde" };
+  }
+}
+
+export interface DadosCadastroPessoa {
+  nome: string;
+  cpf: string;
+  dataNascimento: string;
+}
+
+interface CadastroPessoaResponseVerde {
+  codigo?: string;
+  mensagem?: string;
+  dados?: { idPessoa?: number };
+}
+
+// Issue #171 — POST /integra/pessoa, cria cadastro novo no Verde (CPF válido
+// e ainda não cadastrado). Escopo restrito de propósito (decisão registrada
+// na issue): só os 3 campos obrigatórios do CadastrarPessoaDTO (nome, cpf,
+// dtNascimento) — endereço/telefone/email/gênero/representante ficam pra
+// melhoria futura, chatbot não pede ainda.
+export async function cadastrarPessoa(dados: DadosCadastroPessoa): Promise<ResultadoCadastroPessoa> {
+  if (!VERDE_JWT_TOKEN) {
+    logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // MOCK_CADASTRO_FALHA=true simula falha — só lido em teste/dev, mesmo
+    // padrão de MOCK_ENCAMINHAMENTO_FALHA.
+    if (process.env.MOCK_CADASTRO_FALHA === "true") return { sucesso: false, erro: "falha simulada (mock)" };
+    return { sucesso: true, idPessoa: 888888 };
+  }
+  const inicio = Date.now();
+  try {
+    const body = { nome: dados.nome, cpf: dados.cpf, dtNascimento: dados.dataNascimento };
+    const res = await fetch(`${VERDE_API_URL}/pessoa`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        authorization: `Bearer ${VERDE_JWT_TOKEN}`,
+        "x-client-id": VERDE_CLIENT_ID,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const corpo = (await res.json().catch(() => ({}))) as CadastroPessoaResponseVerde;
+    if (!res.ok) {
+      logHttpNaoOk("cadastroPessoa", res.status, Date.now() - inicio, { corpo });
+      return { sucesso: false, erro: corpo.mensagem ?? `HTTP ${res.status}` };
+    }
+    logger.info(
+      { ...contextoAtual(), corpo, evento: "verde_chamada", chamada: "cadastroPessoa", resultado: "sucesso", duracaoMs: Date.now() - inicio },
+      "[verde] cadastroPessoa: chamada concluída"
+    );
+    if (corpo.dados?.idPessoa === undefined) return { sucesso: false, erro: "Verde não devolveu idPessoa" };
+    return { sucesso: true, idPessoa: corpo.dados.idPessoa };
+  } catch (err) {
+    logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "cadastroPessoa", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] cadastroPessoa: falha na chamada");
     return { sucesso: false, erro: "falha na chamada ao Verde" };
   }
 }

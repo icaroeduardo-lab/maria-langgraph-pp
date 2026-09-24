@@ -96,6 +96,17 @@ Devolve em **ordem de prioridade** — o código sempre usa `orgaos[0]`. Código
 
 `idAssunto` NÃO é enviado — confirmado com o time do Verde (2026-09-04) que não é necessário pra esse fluxo. `preferenciaAtendimento` sempre `"Remoto"` (é chatbot, não tem atendimento presencial nesse canal).
 
+### `POST /integra/pessoa` — cadastro de pessoa nova (issue #171)
+
+```json
+// request (escopo restrito — só os 3 obrigatórios por agora):
+{ "nome": "...", "cpf": "...", "dtNascimento": "..." }
+// response (sucesso):
+{ "dados": { "idPessoa": 123456 } }
+```
+
+Usado pelo subgrafo `src/subgrafos/cadastroPessoa/` quando o CPF informado não tem cadastro no Verde (depois de esgotar as tentativas de busca por CPF). `CadastrarPessoaDTO` completo aceita endereço, telefones, gênero, nacionalidade e representante legal — nenhum desses é enviado ainda (decisão registrada na issue: chatbot não pede esses dados por enquanto, fica pra melhoria futura).
+
 ## RDS Proxy tem allowlist própria — achado configurando o Grafana (issue #83)
 
 Não é sobre a API do Verde em si, mas relevante pra quem for configurar outro acesso ao mesmo Postgres: o **RDS Proxy** que fica na frente do banco (compartilhado com o app) tem uma lista de credenciais autorizadas própria (`Auth`, `AuthScheme: SECRETS`), **separada** das roles que existem de fato no Postgres. Criar uma role no Postgres com `CREATE ROLE` não basta — o proxy rejeita a conexão com `"This RDS proxy has no credentials for the role"` até você registrar um secret (formato `{"username":..., "password":...}`, chaves minúsculas — diferente do formato livre que usamos pros nossos próprios secrets) na allowlist do proxy via `aws rds modify-db-proxy`, e dar `secretsmanager:GetSecretValue` nesse secret pra role IAM que o proxy assume.
