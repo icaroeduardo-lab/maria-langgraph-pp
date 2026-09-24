@@ -18,19 +18,26 @@ Vítima de violência doméstica buscando ajuda/proteção/encaminhamento juríd
         esgotou (3 tentativas, ou respondeu "não")  → segue mesmo assim, NUNCA vira handoff (é só informativo)
      não → pula pro passo 4
 4. "Você já registrou o Boletim de Ocorrência (RO) na delegacia?"   (sim/não)
-5. "Qual o seu CPF?"   (texto — pulado se `cpf` já veio em dadosConhecidos)
-     → consulta Verde (/pessoa) → dadosPessoa
-     → consulta Verde (/cep) com o CEP do endereço → preenche idUf/idBairro/idMunicipio (não bloqueia se faltar)
-     → consulta Verde (/plantao/vigente) — plantão ativo agora?
-6. consulta órgão certo (plantão OU normal, conforme passo 5) pelo idPessoa + RO
-     nenhum órgão encontrado, CPF NÃO encontrado, < 3 tentativas → "Quer tentar de novo o CPF?" (sim/não/CPF direto)
-     nenhum órgão encontrado, CPF NÃO encontrado, esgotou        → HANDOFF: cpf_nao_encontrado
-     nenhum órgão encontrado, CPF encontrado (RO:true sem órgão) → HANDOFF: sem_orgao_disponivel
-     órgão encontrado                                             → 7.
+5. [subgrafo `identificarAssistido`] "Qual o seu CPF?"   (texto — pulado se `cpf` já veio em dadosConhecidos)
+     → consulta Verde (/pessoa)
+     encontrado                          → 6.
+     não encontrado, < 3 tentativas      → "Quer tentar de novo o CPF?" (sim/não/CPF direto)
+     não encontrado, esgotou (3x)        → [subgrafo `cadastroPessoa`, issue #171]
+                                             "Qual o seu nome completo?" → "Qual a sua data de nascimento?"
+                                             → POST /integra/pessoa (cadastro novo, CPF reaproveitado, nunca perguntado de novo)
+                                             cadastrou com sucesso → 6. (com o idPessoa novo)
+                                             falhou                → HANDOFF: falha_cadastro (NÃO finge sucesso)
+6. consulta Verde (/cep) com o CEP do endereço → preenche idUf/idBairro/idMunicipio (não bloqueia se faltar)
+   consulta Verde (/plantao/vigente) — plantão ativo agora?
+   consulta órgão certo (plantão OU normal, conforme acima) pelo idPessoa + RO
+     nenhum órgão encontrado (RO:true sem órgão) → HANDOFF: sem_orgao_disponivel
+     órgão encontrado                             → 7.
 7. cria o encaminhamento DE VERDADE no Verde (POST real, registro criado no sistema deles)
      falhou → HANDOFF: falha_encaminhamento (NÃO finge sucesso pro usuário)
      deu certo → CONCLUÍDO (mensagem com nome do órgão + protocolo)
 ```
+
+`identificarAssistido` e `cadastroPessoa` são subgrafos reaproveitáveis (`src/subgrafos/`, ver `docs/novo-fluxo.md`) — embutidos como nó dentro deste fluxo, mesmo `chatId`/checkpoint, transparente pra Tykhe.
 
 ## Regras de negócio
 
@@ -40,7 +47,7 @@ Vítima de violência doméstica buscando ajuda/proteção/encaminhamento juríd
 |---|---|
 | `nao_e_vitima` | Respondeu "não" na 1ª pergunta. |
 | `sem_orgao_disponivel` | Pessoa encontrada, mas o Verde não achou nenhum órgão pra ela (só acontece com RO:true — sem RO sempre tem fallback). Vem com `mensagemCrc` pronta do Verde ("...ligar 129"). |
-| `cpf_nao_encontrado` | Esgotou as 3 tentativas de CPF sem achar a pessoa (issue #72) — motivo específico, não confunde com `sem_orgao_disponivel` (que é pra pessoa ENCONTRADA). |
+| `falha_cadastro` | Esgotou as 3 tentativas de CPF sem achar a pessoa **e** o cadastro novo no Verde (subgrafo `cadastroPessoa`, issue #171) também falhou — não confunde com `sem_orgao_disponivel` (que é pra pessoa já encontrada/cadastrada). Substitui o antigo `cpf_nao_encontrado` (issue #72): antes, esgotar tentativas já era handoff direto; agora tenta cadastrar primeiro. |
 | `falha_encaminhamento` | Achou o órgão certo, mas o `POST /encaminhamento/encaminhar` de verdade falhou. Nunca inventa sucesso — manda pra atendente confirmar manualmente. |
 
 ### Quem decide o órgão: a Verde, não a Maria
@@ -60,6 +67,7 @@ Antes de consultar órgão, o fluxo checa `GET /plantao/vigente` (sem parâmetro
 - **Sim/não tolerante** — mesma tolerância de pessoa presa (`"sim"`/`"s"`/`"yes"`, com/sem acento).
 - **Número de processo/CPF digitado direto** — tanto na pergunta inicial (`Existe algum processo?`, issue #110) quanto nas perguntas de retry (`Quer tentar de novo?`, issue #77): se o texto bate o formato esperado (processo = 20 dígitos, CPF = 11 dígitos), usa direto como o valor, pulando a pergunta seguinte.
 - **CPF pré-preenchido** — se `dadosConhecidos.cpf` já veio no `POST /atendimentos` (contrato com a Tykhe), não pergunta CPF de novo. Só vale na 1ª tentativa (`tentativasCpf === 0`) — um retry sempre pergunta de novo, nunca reusa o CPF que já falhou.
+- **CPF nunca é perguntado 2x** (issue #171) — o subgrafo `cadastroPessoa` reaproveita `state.cpf` já coletado por `identificarAssistido`, só pergunta nome e data de nascimento (os outros 2 campos obrigatórios do cadastro no Verde).
 
 ## Dados do Verde usados
 
@@ -68,5 +76,6 @@ Antes de consultar órgão, o fluxo checa `GET /plantao/vigente` (sem parâmetro
 - `GET /plantao/vigente` — lista de plantões ativos agora.
 - `GET /orgao/violencia-domestica?indicacaoRO=&idPessoa=` (ou `/orgao/plantao/violencia-domestica` em horário de plantão) — órgão(s) de destino, em ordem de prioridade.
 - `POST /encaminhamento/encaminhar` — cria o encaminhamento real.
+- `POST /integra/pessoa` (issue #171) — cadastra pessoa nova quando CPF não encontrado. Só os 3 campos obrigatórios (nome, cpf, dtNascimento) por agora.
 
 Ver `docs/integracao-verde.md` pros detalhes de cada chamada (shapes de resposta, bugs já encontrados).

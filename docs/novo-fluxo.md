@@ -17,6 +17,39 @@ src/fluxos/<nome>/
 
 Fluxo sem implementação própria ainda (categoria só cadastrada em `fluxos_planejados`, issue #26) usa o grafo compartilhado `src/fluxos/padrao/graph.ts` automaticamente — não precisa criar nada até decidir implementar de verdade.
 
+## 1.1. Precisa de lógica reaproveitável entre fluxos? Use um subgrafo
+
+`src/subgrafos/<nome>/` — peça de `StateGraph` reaproveitável, SEM `flowId` próprio, **nunca** chamada direto via HTTP, só embutida como nó dentro de um fluxo (ou de outro subgrafo). Ver `src/subgrafos/identificarAssistido/` e `src/subgrafos/cadastroPessoa/` (issue #171) como referência.
+
+```
+src/subgrafos/<nome>/
+  state.ts   # mesmos NOMES de campo que o fluxo pai que vai embutir — LangGraph
+              # compartilha canal automaticamente quando o nome bate, sem nó de
+              # "tradução". Sem api.ts (sem metadadosSchema/HTTP próprio).
+  graph.ts   # StateGraph normal, mas .compile() SEM checkpointer próprio — a
+              # persistência é herdada do checkpointer do grafo PAI. Passar um
+              # checkpointer aqui criaria uma 2ª camada desconectada do
+              # thread_id real da conversa.
+```
+
+No fluxo pai:
+
+```ts
+import { grafo as meuSubgrafo } from "../../subgrafos/meuSubgrafo/graph.js";
+
+// campos que o subgrafo escreve (ex: `nome`, `cadastroErro`) precisam existir
+// no state.ts do fluxo pai também, com o MESMO nome — senão o subgrafo não
+// tem onde escrever quando embutido.
+
+const grafo = new StateGraph(MeuFluxoState)
+  // ...
+  .addNode("meuSubgrafo", meuSubgrafo) // embute o grafo compilado como nó
+  .addConditionalEdges("meuSubgrafo", depoisDoSubgrafo, { /* ... */ })
+  // ...
+```
+
+Quando pausar/retomar (`interrupt()`) acontece DENTRO do subgrafo, funciona de forma transparente — mesmo `chatId`/checkpoint da árvore toda, sem esforço extra.
+
 ## 2. Registrar em `src/fluxos/index.ts`
 
 ```ts

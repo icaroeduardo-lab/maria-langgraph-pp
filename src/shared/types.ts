@@ -130,3 +130,14 @@ export interface ResultadoEncaminhamento {
   // preenchido só quando sucesso:false.
   erro?: string;
 }
+
+// Issue #171 — cadastro de pessoa nova no Verde (POST /integra/pessoa),
+// usado pelo subgrafo subgrafos/cadastroPessoa/ quando o CPF informado não
+// tem cadastro. Mesmo padrão de ResultadoEncaminhamento (sucesso/erro).
+export interface ResultadoCadastroPessoa {
+  sucesso: boolean;
+  // preenchido só quando sucesso:true — idPessoa criado de verdade no Verde.
+  idPessoa?: number;
+  // preenchido só quando sucesso:false.
+  erro?: string;
+}
