@@ -19,7 +19,7 @@ Fluxo sem implementação própria ainda (categoria só cadastrada em `fluxos_pl
 
 ## 1.1. Precisa de lógica reaproveitável entre fluxos? Use um subgrafo
 
-`src/subgrafos/<nome>/` — peça de `StateGraph` reaproveitável, SEM `flowId` próprio, **nunca** chamada direto via HTTP, só embutida como nó dentro de um fluxo (ou de outro subgrafo). Ver `src/subgrafos/identificarAssistido/` e `src/subgrafos/cadastroPessoa/` (issue #171) como referência.
+`src/subgrafos/<nome>/` — peça de `StateGraph` reaproveitável, SEM `flowId` próprio, **nunca** chamada direto via HTTP, só embutida como nó dentro de um fluxo (ou de outro subgrafo — `cadastroPessoa` embute `coletarEndereco` dentro dele, subgrafo aninhado). Ver `src/subgrafos/identificarAssistido/`, `src/subgrafos/cadastroPessoa/` (issue #171) e `src/subgrafos/coletarEndereco/` (issue #176) como referência.
 
 ```
 src/subgrafos/<nome>/
