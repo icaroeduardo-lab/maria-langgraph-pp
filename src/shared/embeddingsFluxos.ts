@@ -144,8 +144,18 @@ function criarBuscaPostgres(url: string): BuscaFluxos {
     }
     logger.info({ total: catalogo.length }, "[embeddingsFluxos] catálogo (re)indexado");
   }
+  // Se `indexar` falhar (ex: throttling do Bedrock — mais provável agora
+  // com lotes concorrentes do que era com o loop serial), reseta a promise
+  // memoizada em vez de deixá-la rejeitada pra sempre — sem isso, TODA
+  // chamada futura (aquecimento de boot ou requisição real) ficaria presa
+  // no mesmo erro até reiniciar o processo (achado no code review da #180).
   function garantirIndexado(catalogo: FluxoParaIndexar[]): Promise<void> {
-    if (!indexadoPromise) indexadoPromise = indexar(catalogo);
+    if (!indexadoPromise) {
+      indexadoPromise = indexar(catalogo).catch((err) => {
+        indexadoPromise = undefined;
+        throw err;
+      });
+    }
     return indexadoPromise;
   }
 
