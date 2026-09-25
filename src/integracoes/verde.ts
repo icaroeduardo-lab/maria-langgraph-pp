@@ -302,6 +302,11 @@ function nomeDeCampoCep(campo: { nome?: string } | null | undefined): string | u
 export async function consultarCep(cep: string): Promise<DadosCep> {
   if (!VERDE_JWT_TOKEN) {
     logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
+    // CEP "00000000" simula "não encontrado" (mesmo padrão do CPF
+    // "00000000000" em consultarPessoaPorCpf) — testa o caso da pessoa
+    // não saber o CEP: coletarEndereco (issue #178) pergunta todos os
+    // campos normalmente, já que nada veio pronto.
+    if (cep.replace(/\D/g, "") === "00000000") return { encontrado: false };
     // MOCK_CEP_INCOMPLETO=true simula o caso real já visto (issue #127) de
     // CEP que só devolve uf, sem bairro/município/logradouro — testa o
     // fallback de pergunta do subgrafo coletarEndereco (issue #176). Sem a
