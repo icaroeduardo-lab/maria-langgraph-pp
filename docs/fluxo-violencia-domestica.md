@@ -24,6 +24,8 @@ Vítima de violência doméstica buscando ajuda/proteção/encaminhamento juríd
      não encontrado, < 3 tentativas      → "Quer tentar de novo o CPF?" (sim/não/CPF direto)
      não encontrado, esgotou (3x)        → [subgrafo `cadastroPessoa`, issue #171]
                                              "Qual o seu nome completo?" → "Qual a sua data de nascimento?"
+                                             → [subgrafo `coletarEndereco`, issue #176]
+                                                CEP → logradouro → número → complemento → bairro → município → UF
                                              → POST /integra/pessoa (cadastro novo, CPF reaproveitado, nunca perguntado de novo)
                                              cadastrou com sucesso → 6. (com o idPessoa novo)
                                              falhou                → HANDOFF: falha_cadastro (NÃO finge sucesso)
@@ -37,7 +39,7 @@ Vítima de violência doméstica buscando ajuda/proteção/encaminhamento juríd
      deu certo → CONCLUÍDO (mensagem com nome do órgão + protocolo)
 ```
 
-`identificarAssistido` e `cadastroPessoa` são subgrafos reaproveitáveis (`src/subgrafos/`, ver `docs/novo-fluxo.md`) — embutidos como nó dentro deste fluxo, mesmo `chatId`/checkpoint, transparente pra Tykhe.
+`identificarAssistido`, `cadastroPessoa` e `coletarEndereco` (aninhado dentro de `cadastroPessoa`) são subgrafos reaproveitáveis (`src/subgrafos/`, ver `docs/novo-fluxo.md`) — embutidos como nó dentro deste fluxo, mesmo `chatId`/checkpoint, transparente pra Tykhe.
 
 ## Regras de negócio
 
@@ -67,7 +69,8 @@ Antes de consultar órgão, o fluxo checa `GET /plantao/vigente` (sem parâmetro
 - **Sim/não tolerante** — mesma tolerância de pessoa presa (`"sim"`/`"s"`/`"yes"`, com/sem acento).
 - **Número de processo/CPF digitado direto** — tanto na pergunta inicial (`Existe algum processo?`, issue #110) quanto nas perguntas de retry (`Quer tentar de novo?`, issue #77): se o texto bate o formato esperado (processo = 20 dígitos, CPF = 11 dígitos), usa direto como o valor, pulando a pergunta seguinte.
 - **CPF pré-preenchido** — se `dadosConhecidos.cpf` já veio no `POST /atendimentos` (contrato com a Tykhe), não pergunta CPF de novo. Só vale na 1ª tentativa (`tentativasCpf === 0`) — um retry sempre pergunta de novo, nunca reusa o CPF que já falhou.
-- **CPF nunca é perguntado 2x** (issue #171) — o subgrafo `cadastroPessoa` reaproveita `state.cpf` já coletado por `identificarAssistido`, só pergunta nome e data de nascimento (os outros 2 campos obrigatórios do cadastro no Verde).
+- **CPF nunca é perguntado 2x** (issue #171) — o subgrafo `cadastroPessoa` reaproveita `state.cpf` já coletado por `identificarAssistido`, só pergunta nome, data de nascimento e endereço.
+- **Endereço no cadastro** (issue #176) — achado ao vivo: pessoa cadastrada sem endereço pode não ter órgão disponível na consulta de violência doméstica, mesmo em casos que normalmente teriam fallback. `coletarEndereco` sempre roda depois da data de nascimento, antes do `POST /integra/pessoa`.
 
 ## Dados do Verde usados
 
@@ -76,6 +79,6 @@ Antes de consultar órgão, o fluxo checa `GET /plantao/vigente` (sem parâmetro
 - `GET /plantao/vigente` — lista de plantões ativos agora.
 - `GET /orgao/violencia-domestica?indicacaoRO=&idPessoa=` (ou `/orgao/plantao/violencia-domestica` em horário de plantão) — órgão(s) de destino, em ordem de prioridade.
 - `POST /encaminhamento/encaminhar` — cria o encaminhamento real.
-- `POST /integra/pessoa` (issue #171) — cadastra pessoa nova quando CPF não encontrado. Só os 3 campos obrigatórios (nome, cpf, dtNascimento) por agora.
+- `POST /integra/pessoa` (issue #171, endereço na #176) — cadastra pessoa nova quando CPF não encontrado. Nome, CPF, data de nascimento e endereço completo.
 
 Ver `docs/integracao-verde.md` pros detalhes de cada chamada (shapes de resposta, bugs já encontrados).

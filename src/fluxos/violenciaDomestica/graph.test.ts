@@ -13,6 +13,22 @@ function pergunta(resultado: unknown): { pergunta: string; tipo: string; opcoes?
   return (resultado as { __interrupt__?: Array<{ value: { pergunta: string; tipo: string; opcoes?: string[] } }> }).__interrupt__?.[0]?.value;
 }
 
+// Issue #176 — subgrafo coletarEndereco, embutido dentro de cadastroPessoa
+// (issue #171): CEP → logradouro → número → complemento → bairro →
+// município → UF, sempre nessa ordem. Extraído em helper porque todo teste
+// que passa pelo cadastro agora precisa dessa sequência antes de chegar em
+// cadastrarPessoa. Devolve o resultado da ÚLTIMA resposta (UF), que já é o
+// desfecho do cadastro (POST no Verde roda logo depois, sem interrupt no meio).
+async function preencherEndereco(config: { configurable: { thread_id: string } }) {
+  await grafo.invoke(new Command({ resume: "20000-000" }), config); // CEP
+  await grafo.invoke(new Command({ resume: "Rua de Teste" }), config); // logradouro
+  await grafo.invoke(new Command({ resume: "123" }), config); // número
+  await grafo.invoke(new Command({ resume: "não" }), config); // sem complemento
+  await grafo.invoke(new Command({ resume: "Centro" }), config); // bairro
+  await grafo.invoke(new Command({ resume: "Rio de Janeiro" }), config); // município
+  return grafo.invoke(new Command({ resume: "RJ" }), config); // UF → cadastra
+}
+
 test("1ª invocação pausa em pedirEhVitima", async () => {
   const config = novoConfig();
   const r = await grafo.invoke({}, config);
@@ -213,10 +229,12 @@ test("tem RO, CPF errado, responde 'Não' quer tentar de novo → entra em cadas
   assert.match(pergunta(r1)?.pergunta ?? "", /qual o seu nome completo/);
   const r2 = await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
   assert.match(pergunta(r2)?.pergunta ?? "", /data de nascimento/);
-  const r3 = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastra
-  assert.equal(pergunta(r3), undefined);
-  assert.equal((r3 as { statusFinal?: string }).statusFinal, "concluido");
-  assert.equal((r3 as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
+  const r3 = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → pausa pra endereço
+  assert.match(pergunta(r3)?.pergunta ?? "", /CEP/, "issue #176 — deveria pausar pedindo endereço antes de cadastrar");
+  const r4 = await preencherEndereco(config); // CEP...UF → cadastra
+  assert.equal(pergunta(r4), undefined);
+  assert.equal((r4 as { statusFinal?: string }).statusFinal, "concluido");
+  assert.equal((r4 as { tipoEncaminhamento?: string }).tipoEncaminhamento, "urgente");
 });
 
 test("tem RO, esgota as 3 tentativas de CPF → entra em cadastro; cadastro falha → handoff_humano, motivo falha_cadastro (issue #171)", async () => {
@@ -237,7 +255,8 @@ test("tem RO, esgota as 3 tentativas de CPF → entra em cadastro; cadastro falh
     const t3 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // tentativa 3, esgotou → entra em cadastro
     assert.match(pergunta(t3)?.pergunta ?? "", /qual o seu nome completo/, "esgotou as 3 tentativas de CPF — deveria entrar em cadastro, não perguntar CPF de novo");
     await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
-    const r = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastro falha (mock)
+    await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → pausa pra endereço
+    const r = await preencherEndereco(config); // CEP...UF → cadastro falha (mock)
     assert.equal(pergunta(r), undefined);
     assert.equal((r as { statusFinal?: string }).statusFinal, "handoff_humano");
     assert.equal((r as { motivoHandoff?: string }).motivoHandoff, "falha_cadastro");
@@ -304,7 +323,8 @@ test("sem RO, CPF não encontrado no Verde → entra em cadastro, sucesso encont
   const t1 = await grafo.invoke(new Command({ resume: "00000000000" }), config); // cpf sentinela "não encontrado"
   await grafo.invoke(new Command({ resume: "Não" }), config); // não quer tentar de novo → entra em cadastro
   await grafo.invoke(new Command({ resume: "Maria de Teste" }), config); // nome
-  const r = await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → cadastra
+  await grafo.invoke(new Command({ resume: "01/01/1990" }), config); // data de nascimento → pausa pra endereço
+  const r = await preencherEndereco(config); // CEP...UF → cadastra
   assert.match(pergunta(t1)?.pergunta ?? "", /tentativa 1 de 3/);
   assert.equal((r as { statusFinal?: string }).statusFinal, "concluido");
   assert.equal((r as { tipoEncaminhamento?: string }).tipoEncaminhamento, "padrao");

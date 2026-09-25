@@ -96,16 +96,21 @@ Devolve em **ordem de prioridade** — o código sempre usa `orgaos[0]`. Código
 
 `idAssunto` NÃO é enviado — confirmado com o time do Verde (2026-09-04) que não é necessário pra esse fluxo. `preferenciaAtendimento` sempre `"Remoto"` (é chatbot, não tem atendimento presencial nesse canal).
 
-### `POST /integra/pessoa` — cadastro de pessoa nova (issue #171)
+### `POST /integra/pessoa` — cadastro de pessoa nova (issue #171, endereço na #176)
 
 ```json
-// request (escopo restrito — só os 3 obrigatórios por agora):
-{ "nome": "...", "cpf": "...", "dtNascimento": "..." }
+// request:
+{
+  "nome": "...", "cpf": "...", "dtNascimento": "...",
+  "endereco": { "logradouro": "...", "numero": "...", "complemento": "...", "cep": "...", "bairro": "...", "municipio": "...", "uf": "..." }
+}
 // response (sucesso):
 { "dados": { "idPessoa": 123456 } }
 ```
 
-Usado pelo subgrafo `src/subgrafos/cadastroPessoa/` quando o CPF informado não tem cadastro no Verde (depois de esgotar as tentativas de busca por CPF). `CadastrarPessoaDTO` completo aceita endereço, telefones, gênero, nacionalidade e representante legal — nenhum desses é enviado ainda (decisão registrada na issue: chatbot não pede esses dados por enquanto, fica pra melhoria futura).
+Usado pelo subgrafo `src/subgrafos/cadastroPessoa/` quando o CPF informado não tem cadastro no Verde (depois de esgotar as tentativas de busca por CPF). `endereco` vem do subgrafo `src/subgrafos/coletarEndereco/` (issue #176), embutido dentro do cadastro — **achado ao vivo**: pessoa cadastrada sem endereço pode não ter órgão disponível na consulta de violência doméstica (a consulta de órgão parece depender do endereço cadastrado), mesmo em casos que teriam fallback com endereço presente. `GET /cep/{cep}` não serve pra auto-preencher esses campos — só devolve IDs administrativos (idUf/idBairro/idMunicipio, usados pro roteamento de órgão), não texto de endereço.
+
+`CadastrarPessoaDTO` completo também aceita telefones, gênero, nacionalidade e representante legal — nenhum desses é enviado ainda (decisão registrada na issue #171: chatbot não pede esses dados por enquanto, fica pra melhoria futura).
 
 ## RDS Proxy tem allowlist própria — achado configurando o Grafana (issue #83)
 

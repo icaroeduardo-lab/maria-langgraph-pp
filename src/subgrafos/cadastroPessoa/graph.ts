@@ -3,6 +3,7 @@ import { type CadastroPessoaStateType, CadastroPessoaState } from "./state.js";
 import type { Pergunta } from "../../shared/types.js";
 import { cadastrarPessoa as cadastrarPessoaVerde } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
+import { grafo as subgrafoColetarEndereco } from "../coletarEndereco/graph.js";
 
 // Issue #171 — subgrafo reaproveitável: cadastra a pessoa no Verde
 // (POST /integra/pessoa) quando o CPF informado não tem cadastro ainda.
@@ -41,6 +42,11 @@ async function cadastrarPessoa(state: CadastroPessoaStateType): Promise<Partial<
     nome: state.nome ?? "",
     cpf: state.cpf ?? "",
     dataNascimento: state.dataNascimento ?? "",
+    // Issue #176 — coletado pelo subgrafo coletarEndereco (embutido abaixo)
+    // antes de chegar aqui. Sem endereço, a pessoa cadastrada pode não ter
+    // órgão disponível na consulta de violência doméstica mesmo em casos
+    // que teriam fallback com endereço presente (achado ao vivo, issue #171).
+    endereco: state.endereco,
   });
   if (!resultado.sucesso) return { cadastroErro: resultado.erro ?? "erro desconhecido" };
   // Mesmo campo/shape que identificarAssistido já preenche quando encontra
@@ -54,12 +60,18 @@ const grafo = new StateGraph(CadastroPessoaState)
   .addNode("pedirNome", pedirNome)
   .addNode("prepararPerguntaDataNascimento", prepararPerguntaDataNascimento)
   .addNode("pedirDataNascimento", pedirDataNascimento)
+  // Issue #176 — subgrafo aninhado (subgrafo dentro de subgrafo, LangGraph
+  // suporta níveis arbitrários). Sem ele, cadastro ficava sem endereço —
+  // achado ao vivo que pessoa recém-cadastrada sem endereço não acha órgão
+  // de violência doméstica mesmo em casos que teriam fallback.
+  .addNode("coletarEndereco", subgrafoColetarEndereco)
   .addNode("cadastrarPessoa", cadastrarPessoa)
   .addEdge(START, "prepararPerguntaNome")
   .addEdge("prepararPerguntaNome", "pedirNome")
   .addEdge("pedirNome", "prepararPerguntaDataNascimento")
   .addEdge("prepararPerguntaDataNascimento", "pedirDataNascimento")
-  .addEdge("pedirDataNascimento", "cadastrarPessoa")
+  .addEdge("pedirDataNascimento", "coletarEndereco")
+  .addEdge("coletarEndereco", "cadastrarPessoa")
   .addEdge("cadastrarPessoa", END)
   // Sem checkpointer próprio — mesmo racional de subgrafos/identificarAssistido.
   .compile();

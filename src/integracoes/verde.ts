@@ -594,10 +594,23 @@ export async function criarEncaminhamentoViolenciaDomestica(dados: DadosEncaminh
   }
 }
 
+export interface EnderecoCadastroPessoa {
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  cep?: string;
+  bairro?: string;
+  municipio?: string;
+  uf?: string;
+}
+
 export interface DadosCadastroPessoa {
   nome: string;
   cpf: string;
   dataNascimento: string;
+  // Issue #176 — opcional; sem ele, POST /integra/pessoa cadastra sem
+  // endereço (comportamento de antes da issue #176, ainda suportado).
+  endereco?: EnderecoCadastroPessoa;
 }
 
 interface CadastroPessoaResponseVerde {
@@ -621,7 +634,12 @@ export async function cadastrarPessoa(dados: DadosCadastroPessoa): Promise<Resul
   }
   const inicio = Date.now();
   try {
-    const body = { nome: dados.nome, cpf: dados.cpf, dtNascimento: dados.dataNascimento };
+    const body = {
+      nome: dados.nome,
+      cpf: dados.cpf,
+      dtNascimento: dados.dataNascimento,
+      ...(dados.endereco ? { endereco: dados.endereco } : {}),
+    };
     const res = await fetch(`${VERDE_API_URL}/pessoa`, {
       method: "POST",
       headers: {

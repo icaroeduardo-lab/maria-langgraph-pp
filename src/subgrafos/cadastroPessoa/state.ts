@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import type { DadosPessoa } from "../../shared/types.js";
+import type { EnderecoCadastro } from "../coletarEndereco/state.js";
 import { AnnotationTokensGastos } from "../../shared/tokensAcumulados.js";
 
 export type CadastroPessoaStateType = typeof CadastroPessoaState.State;
@@ -15,6 +16,11 @@ export const CadastroPessoaState = Annotation.Root({
   cpf: Annotation<string | undefined>,
   nome: Annotation<string | undefined>,
   dataNascimento: Annotation<string | undefined>,
+  // Issue #176 — compartilhado com o subgrafo coletarEndereco, embutido
+  // como nó aqui dentro. Endereço ausente = pessoa cadastrada sem endereço
+  // (comportamento de antes da issue #176) — o subgrafo sempre roda, mas
+  // cada campo individual pode vir undefined se a pessoa não informar.
+  endereco: Annotation<EnderecoCadastro | undefined>,
   dadosPessoa: Annotation<DadosPessoa | undefined>,
   // preenchido só se o POST /integra/pessoa falhar — pai decide o que fazer
   // (ver falhaCadastro em fluxos/violenciaDomestica/graph.ts).
