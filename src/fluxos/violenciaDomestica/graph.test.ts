@@ -14,19 +14,16 @@ function pergunta(resultado: unknown): { pergunta: string; tipo: string; opcoes?
 }
 
 // Issue #176 — subgrafo coletarEndereco, embutido dentro de cadastroPessoa
-// (issue #171): CEP → logradouro → número → complemento → bairro →
-// município → UF, sempre nessa ordem. Extraído em helper porque todo teste
-// que passa pelo cadastro agora precisa dessa sequência antes de chegar em
-// cadastrarPessoa. Devolve o resultado da ÚLTIMA resposta (UF), que já é o
-// desfecho do cadastro (POST no Verde roda logo depois, sem interrupt no meio).
+// (issue #171): CEP → consulta Verde → só pergunta o que a Verde não trouxe.
+// Mock padrão de consultarCep (verde.ts) devolve logradouro/bairro/
+// município/UF completos — só número e complemento (nunca vêm do CEP)
+// ficam de pausa real. Devolve o resultado da ÚLTIMA resposta (complemento),
+// que já é o desfecho do cadastro (POST no Verde roda logo depois, sem
+// interrupt no meio, e o resto do fluxo pai também não pausa de novo).
 async function preencherEndereco(config: { configurable: { thread_id: string } }) {
   await grafo.invoke(new Command({ resume: "20000-000" }), config); // CEP
-  await grafo.invoke(new Command({ resume: "Rua de Teste" }), config); // logradouro
-  await grafo.invoke(new Command({ resume: "123" }), config); // número
-  await grafo.invoke(new Command({ resume: "não" }), config); // sem complemento
-  await grafo.invoke(new Command({ resume: "Centro" }), config); // bairro
-  await grafo.invoke(new Command({ resume: "Rio de Janeiro" }), config); // município
-  return grafo.invoke(new Command({ resume: "RJ" }), config); // UF → cadastra
+  await grafo.invoke(new Command({ resume: "123" }), config); // número (nunca vem do CEP)
+  return grafo.invoke(new Command({ resume: "não" }), config); // sem complemento → cadastra
 }
 
 test("1ª invocação pausa em pedirEhVitima", async () => {

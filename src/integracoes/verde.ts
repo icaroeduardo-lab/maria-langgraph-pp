@@ -269,21 +269,29 @@ export async function consultarPessoaPorCpf(cpf: string): Promise<DadosPessoa> {
   }
 }
 
-// bairro/municipio vêm ora null, ora objeto {id,...} (achado ao vivo
-// 2026-09-21, testando /cep com CEPs reais só uf veio populado) — leitura
-// defensiva, sem assumir shape fixo.
+// bairro/municipio vêm ora null, ora objeto completo {id, nome} (CEP a CEP,
+// não é regra geral da API) — leitura defensiva, sem assumir shape fixo.
+// Issue #176 — uf.sigla/bairro.nome/municipio.nome/logradouro são TEXTO de
+// verdade quando presentes (confirmado ao vivo com CEP real, issue #176) —
+// antes só os ids eram lidos, o texto era descartado.
 interface CepResponseVerde {
   codigo?: string;
   mensagem?: string;
   dados?: {
-    uf?: { id?: number } | null;
-    bairro?: { id?: number } | null;
-    municipio?: { id?: number } | null;
+    uf?: { id?: number; sigla?: string; nome?: string } | null;
+    bairro?: { id?: number; nome?: string } | null;
+    municipio?: { id?: number; nome?: string } | null;
+    logradouro?: string | null;
+    numero?: string | null;
   };
 }
 
 function idDeCampoCep(campo: { id?: number } | null | undefined): number | undefined {
   return campo && typeof campo === "object" ? campo.id : undefined;
+}
+
+function nomeDeCampoCep(campo: { nome?: string } | null | undefined): string | undefined {
+  return campo && typeof campo === "object" ? campo.nome : undefined;
 }
 
 // Issue #127 — GET /cep/{cep}, separado de /pessoa: devolve ids de
@@ -294,7 +302,21 @@ function idDeCampoCep(campo: { id?: number } | null | undefined): number | undef
 export async function consultarCep(cep: string): Promise<DadosCep> {
   if (!VERDE_JWT_TOKEN) {
     logger.warn(contextoAtual(), "[verde] VERDE_JWT_TOKEN ausente — modo mock (dev local)");
-    return { encontrado: true, idUf: 19 };
+    // MOCK_CEP_INCOMPLETO=true simula o caso real já visto (issue #127) de
+    // CEP que só devolve uf, sem bairro/município/logradouro — testa o
+    // fallback de pergunta do subgrafo coletarEndereco (issue #176). Sem a
+    // flag, mock devolve endereço completo (caso mais comum na prática).
+    if (process.env.MOCK_CEP_INCOMPLETO === "true") return { encontrado: true, idUf: 19, uf: "RJ" };
+    return {
+      encontrado: true,
+      idUf: 19,
+      idBairro: 9948,
+      idMunicipio: 3643,
+      uf: "RJ",
+      bairro: "Bairro de Teste (mock)",
+      municipio: "Rio de Janeiro (mock)",
+      logradouro: "Rua de Teste (mock)",
+    };
   }
   const inicio = Date.now();
   try {
@@ -319,6 +341,10 @@ export async function consultarCep(cep: string): Promise<DadosCep> {
       idUf: idDeCampoCep(corpo.dados.uf),
       idBairro: idDeCampoCep(corpo.dados.bairro),
       idMunicipio: idDeCampoCep(corpo.dados.municipio),
+      uf: corpo.dados.uf?.sigla,
+      bairro: nomeDeCampoCep(corpo.dados.bairro),
+      municipio: nomeDeCampoCep(corpo.dados.municipio),
+      logradouro: corpo.dados.logradouro ?? undefined,
     };
   } catch (err) {
     logger.error({ ...contextoAtual(), err, evento: "verde_chamada", chamada: "cep", resultado: "erro", duracaoMs: Date.now() - inicio }, "[verde] cep: falha na chamada");

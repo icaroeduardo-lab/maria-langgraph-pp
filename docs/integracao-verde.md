@@ -59,13 +59,15 @@ Antes dessa distinção existir, um token expirado virava indistinguível de "CP
 
 ⚠️ A Verde devolve `enderecoDetalhado.bairro`/`.municipio`/`.uf`/`.logradouro`/`.numero`/`.complemento` também, mas **só `cep` é lido** — os demais são texto sem id, ninguém usava em lógica de fluxo (issue #127 removeu do nosso tipo — se algo novo precisar do texto, tem que voltar a capturar).
 
-### `GET /cep/{cep}` — violência doméstica (issue #127)
+### `GET /cep/{cep}` — violência doméstica (issue #127, texto na #176)
 
 ```json
-{ "dados": { "uf": { "id": 19, "sigla": "RJ", "nome": "Rio de Janeiro" }, "bairro": null, "municipio": null, "logradouro": null, "numero": null } }
+{ "dados": { "uf": { "id": 19, "sigla": "RJ", "nome": "Rio de Janeiro" }, "bairro": { "id": 9948, "nome": "Centro" }, "municipio": { "id": 3643, "nome": "Rio de Janeiro" }, "logradouro": "Rua Exemplo", "numero": null } }
 ```
 
-⚠️ **Achado ao vivo (2026-09-21)**, testando com 2 CEPs reais: `bairro`/`municipio` vieram `null` nos dois — só `uf` veio populado. Não confirmado ainda qual o shape exato quando `bairro`/`municipio` **têm** dado (provavelmente `{id, nome}`, pelo padrão de `uf`, mas sem exemplo populado visto ainda). O código lê defensivamente (`idDeCampoCep()`), sem assumir shape fixo — se vier `null` ou objeto sem `id`, só fica `undefined`, não quebra nada.
+Quando cadastrado, `uf`/`bairro`/`municipio` vêm como `{id, nome}` (`sigla` só em `uf`) e `logradouro` como string solta — capturamos tanto o `id` quanto o texto (`idDeCampoCep()`/`nomeDeCampoCep()` em `verde.ts`). Usado por `coletarEndereco` (issue #176) pra não perguntar de novo o que a Verde já sabe.
+
+⚠️ **Achado ao vivo (2026-09-21)**, testando com 2 CEPs reais: `bairro`/`municipio` vieram `null` nos dois — só `uf` veio populado. Não é regra geral da API, é CEP a CEP: outro CEP testado depois (2026-09-25) veio com tudo populado (exemplo acima). O código lê defensivamente (`idDeCampoCep()`/`nomeDeCampoCep()`), sem assumir shape fixo — se vier `null` ou objeto sem `id`/`nome`, só fica `undefined`, não quebra nada; `coletarEndereco` pergunta de volta o que faltou.
 
 ### `GET /plantao/vigente` — violência doméstica
 
@@ -108,7 +110,7 @@ Devolve em **ordem de prioridade** — o código sempre usa `orgaos[0]`. Código
 { "dados": { "idPessoa": 123456 } }
 ```
 
-Usado pelo subgrafo `src/subgrafos/cadastroPessoa/` quando o CPF informado não tem cadastro no Verde (depois de esgotar as tentativas de busca por CPF). `endereco` vem do subgrafo `src/subgrafos/coletarEndereco/` (issue #176), embutido dentro do cadastro — **achado ao vivo**: pessoa cadastrada sem endereço pode não ter órgão disponível na consulta de violência doméstica (a consulta de órgão parece depender do endereço cadastrado), mesmo em casos que teriam fallback com endereço presente. `GET /cep/{cep}` não serve pra auto-preencher esses campos — só devolve IDs administrativos (idUf/idBairro/idMunicipio, usados pro roteamento de órgão), não texto de endereço.
+Usado pelo subgrafo `src/subgrafos/cadastroPessoa/` quando o CPF informado não tem cadastro no Verde (depois de esgotar as tentativas de busca por CPF). `endereco` vem do subgrafo `src/subgrafos/coletarEndereco/` (issue #176), embutido dentro do cadastro — **achado ao vivo**: pessoa cadastrada sem endereço pode não ter órgão disponível na consulta de violência doméstica (a consulta de órgão parece depender do endereço cadastrado), mesmo em casos que teriam fallback com endereço presente. `coletarEndereco` consulta `GET /cep/{cep}` primeiro e só pergunta os campos que a Verde não devolveu em texto (ver seção acima) — número e complemento nunca vêm do CEP, sempre perguntados.
 
 `CadastrarPessoaDTO` completo também aceita telefones, gênero, nacionalidade e representante legal — nenhum desses é enviado ainda (decisão registrada na issue #171: chatbot não pede esses dados por enquanto, fica pra melhoria futura).
 

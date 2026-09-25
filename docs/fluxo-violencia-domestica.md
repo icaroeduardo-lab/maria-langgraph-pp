@@ -25,7 +25,10 @@ Vítima de violência doméstica buscando ajuda/proteção/encaminhamento juríd
      não encontrado, esgotou (3x)        → [subgrafo `cadastroPessoa`, issue #171]
                                              "Qual o seu nome completo?" → "Qual a sua data de nascimento?"
                                              → [subgrafo `coletarEndereco`, issue #176]
-                                                CEP → logradouro → número → complemento → bairro → município → UF
+                                                CEP → consulta Verde (/cep) → só pergunta o que a Verde
+                                                não devolveu em texto (logradouro/bairro/município/UF podem
+                                                vir prontos; número e complemento nunca vêm do CEP, sempre
+                                                perguntados)
                                              → POST /integra/pessoa (cadastro novo, CPF reaproveitado, nunca perguntado de novo)
                                              cadastrou com sucesso → 6. (com o idPessoa novo)
                                              falhou                → HANDOFF: falha_cadastro (NÃO finge sucesso)
@@ -71,11 +74,12 @@ Antes de consultar órgão, o fluxo checa `GET /plantao/vigente` (sem parâmetro
 - **CPF pré-preenchido** — se `dadosConhecidos.cpf` já veio no `POST /atendimentos` (contrato com a Tykhe), não pergunta CPF de novo. Só vale na 1ª tentativa (`tentativasCpf === 0`) — um retry sempre pergunta de novo, nunca reusa o CPF que já falhou.
 - **CPF nunca é perguntado 2x** (issue #171) — o subgrafo `cadastroPessoa` reaproveita `state.cpf` já coletado por `identificarAssistido`, só pergunta nome, data de nascimento e endereço.
 - **Endereço no cadastro** (issue #176) — achado ao vivo: pessoa cadastrada sem endereço pode não ter órgão disponível na consulta de violência doméstica, mesmo em casos que normalmente teriam fallback. `coletarEndereco` sempre roda depois da data de nascimento, antes do `POST /integra/pessoa`.
+- **CEP-first no endereço** (issue #176) — `GET /cep/{cep}` pode devolver logradouro/bairro/município/UF prontos em texto, não só os ids; quando vem, `coletarEndereco` pula a pergunta daquele campo (mesmo racional de "não pergunta o que já sabe" do CPF pré-preenchido). Não é garantido pra todo CEP — achado ao vivo (issue #127) que alguns vêm incompletos (só UF, por exemplo); nesse caso volta a perguntar o que faltou. Número nunca vem do CEP (é do imóvel, não da rua) — sempre perguntado, junto com complemento (sempre opcional).
 
 ## Dados do Verde usados
 
 - `GET /pessoa?cpf=` — `idPessoa`, `nome`, `nomeSocial`, `genero`, `endereco`, `enderecoDetalhado.cep`.
-- `GET /cep/{cep}` — `idUf`/`idBairro`/`idMunicipio` (issue #127; `idBairro`/`idMunicipio` podem vir ausentes mesmo com o CEP existindo, quando a Verde não tem esse detalhe cadastrado).
+- `GET /cep/{cep}` — ids (`idUf`/`idBairro`/`idMunicipio`) e, quando cadastrados, texto (`uf`/`bairro`/`municipio`/`logradouro`) (issue #127; podem vir incompletos mesmo com o CEP existindo, quando a Verde não tem todo detalhe cadastrado — usado por `coletarEndereco`, issue #176, pra não perguntar de novo o que já veio).
 - `GET /plantao/vigente` — lista de plantões ativos agora.
 - `GET /orgao/violencia-domestica?indicacaoRO=&idPessoa=` (ou `/orgao/plantao/violencia-domestica` em horário de plantão) — órgão(s) de destino, em ordem de prioridade.
 - `POST /encaminhamento/encaminhar` — cria o encaminhamento real.
