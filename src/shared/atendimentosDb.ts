@@ -138,6 +138,15 @@ async function criarStorePostgres(url: string): Promise<AtendimentosStore> {
       ADD COLUMN IF NOT EXISTS aguardando_confirmacao_ttl BOOLEAN NOT NULL DEFAULT false,
       ADD COLUMN IF NOT EXISTS resposta_pendente_ttl TEXT
   `);
+  // Bug real achado ao vivo (2026-09-25, testando a issue #171 contra Verde
+  // homolog de verdade): ADD COLUMN IF NOT EXISTS sem DEFAULT só preenche
+  // atualizado_em nas linhas JÁ existentes (via o UPDATE de backfill
+  // abaixo) — toda linha NOVA inserida por registrar() (sem essa coluna no
+  // INSERT) ficava com atualizado_em NULL, e `.getTime()` em rotas/
+  // atendimentos.ts quebrava com "Cannot read properties of null" na
+  // primeira resposta de qualquer atendimento criado depois da migração.
+  // SET DEFAULT é idempotente — seguro rodar em toda inicialização.
+  await pool.query(`ALTER TABLE atendimentos ALTER COLUMN atualizado_em SET DEFAULT now()`);
   await pool.query(`UPDATE atendimentos SET atualizado_em = criado_em WHERE atualizado_em IS NULL`);
   logger.info("[atendimentosDb] tabela 'atendimentos' pronta (Postgres)");
 
