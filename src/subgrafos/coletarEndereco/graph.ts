@@ -1,18 +1,21 @@
 import { interrupt, StateGraph, START, END } from "@langchain/langgraph";
 import { type ColetarEnderecoStateType, ColetarEnderecoState } from "./state.js";
 import type { Pergunta } from "../../shared/types.js";
+import { consultarCep as consultarCepVerde } from "../../integracoes/verde.js";
 import { prepararPergunta } from "../../ia/reescrever.js";
 
 // Issue #176 — subgrafo reaproveitável: coleta os campos de endereço do
 // CadastrarPessoaDTO (POST /integra/pessoa) — logradouro, número,
-// complemento, CEP, bairro, município, UF. `GET /cep/{cep}` (verde.ts)
-// não serve pra auto-preencher esses campos — só devolve IDs administrativos
-// (idUf/idBairro/idMunicipio, usados pra roteamento de órgão), não texto.
-// Sem API de "CEP → endereço em texto" disponível, cada campo é perguntado
-// direto — complemento aceita resposta vazia (nem todo endereço tem).
+// complemento, CEP, bairro, município, UF.
 //
-// Complemento é o único campo realmente opcional do grupo — os outros são
-// os que o CadastrarPessoaDTO espera preenchidos pra um endereço utilizável.
+// GET /cep/{cep} (verde.ts::consultarCep) devolve logradouro/bairro/
+// município/UF em TEXTO quando a Verde tem cadastrado pra aquele CEP — não
+// é garantido pra todo CEP (achado ao vivo, issue #127: alguns CEPs vêm
+// incompletos, só uf populado), mas quando vem, evita perguntar de novo
+// (mesmo racional de bypass usado em identificarAssistido pro CPF vindo de
+// dadosConhecidos). `numero` nunca vem do CEP (é específico do imóvel, CEP é
+// da rua toda) — sempre perguntado. `complemento` é sempre perguntado e
+// sempre opcional (nem todo endereço tem).
 
 async function prepararPerguntaCep(): Promise<Partial<ColetarEnderecoStateType>> {
   return prepararPergunta("cep", "Qual o CEP do seu endereço?");
@@ -23,11 +26,26 @@ async function pedirCep(state: ColetarEnderecoStateType): Promise<Partial<Coleta
   return { cep: resposta };
 }
 
-async function prepararPerguntaLogradouro(): Promise<Partial<ColetarEnderecoStateType>> {
+async function consultarCep(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  const dados = await consultarCepVerde(state.cep ?? "");
+  if (!dados.encontrado) return {};
+  return {
+    logradouro: dados.logradouro,
+    bairro: dados.bairro,
+    municipio: dados.municipio,
+    uf: dados.uf,
+  };
+}
+
+// Bypass: só pergunta o que o CEP não trouxe — mesmo padrão de
+// cpfVeioDeDadosConhecidos em subgrafos/identificarAssistido/graph.ts.
+async function prepararPerguntaLogradouro(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.logradouro !== undefined) return {};
   return prepararPergunta("logradouro", "Qual o nome da rua/avenida?");
 }
 
 async function pedirLogradouro(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.logradouro !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({ pergunta: state.perguntaAtualTexto ?? "Qual o nome da rua/avenida?", tipo: "texto" });
   return { logradouro: resposta };
 }
@@ -55,29 +73,35 @@ async function pedirComplemento(state: ColetarEnderecoStateType): Promise<Partia
   return { complemento: semComplemento ? undefined : resposta };
 }
 
-async function prepararPerguntaBairro(): Promise<Partial<ColetarEnderecoStateType>> {
+async function prepararPerguntaBairro(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.bairro !== undefined) return {};
   return prepararPergunta("bairro", "Qual o bairro?");
 }
 
 async function pedirBairro(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.bairro !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({ pergunta: state.perguntaAtualTexto ?? "Qual o bairro?", tipo: "texto" });
   return { bairro: resposta };
 }
 
-async function prepararPerguntaMunicipio(): Promise<Partial<ColetarEnderecoStateType>> {
+async function prepararPerguntaMunicipio(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.municipio !== undefined) return {};
   return prepararPergunta("municipio", "Qual o município?");
 }
 
 async function pedirMunicipio(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.municipio !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({ pergunta: state.perguntaAtualTexto ?? "Qual o município?", tipo: "texto" });
   return { municipio: resposta };
 }
 
-async function prepararPerguntaUf(): Promise<Partial<ColetarEnderecoStateType>> {
+async function prepararPerguntaUf(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.uf !== undefined) return {};
   return prepararPergunta("uf", "Qual o estado (UF, ex: RJ)?");
 }
 
 async function pedirUf(state: ColetarEnderecoStateType): Promise<Partial<ColetarEnderecoStateType>> {
+  if (state.uf !== undefined) return {};
   const resposta = interrupt<Pergunta, string>({ pergunta: state.perguntaAtualTexto ?? "Qual o estado (UF, ex: RJ)?", tipo: "texto" });
   return { uf: resposta.trim().toUpperCase() };
 }
@@ -99,6 +123,7 @@ async function montarEndereco(state: ColetarEnderecoStateType): Promise<Partial<
 const grafo = new StateGraph(ColetarEnderecoState)
   .addNode("prepararPerguntaCep", prepararPerguntaCep)
   .addNode("pedirCep", pedirCep)
+  .addNode("consultarCep", consultarCep)
   .addNode("prepararPerguntaLogradouro", prepararPerguntaLogradouro)
   .addNode("pedirLogradouro", pedirLogradouro)
   .addNode("prepararPerguntaNumero", prepararPerguntaNumero)
@@ -114,7 +139,8 @@ const grafo = new StateGraph(ColetarEnderecoState)
   .addNode("montarEndereco", montarEndereco)
   .addEdge(START, "prepararPerguntaCep")
   .addEdge("prepararPerguntaCep", "pedirCep")
-  .addEdge("pedirCep", "prepararPerguntaLogradouro")
+  .addEdge("pedirCep", "consultarCep")
+  .addEdge("consultarCep", "prepararPerguntaLogradouro")
   .addEdge("prepararPerguntaLogradouro", "pedirLogradouro")
   .addEdge("pedirLogradouro", "prepararPerguntaNumero")
   .addEdge("prepararPerguntaNumero", "pedirNumero")

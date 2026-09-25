@@ -64,12 +64,19 @@ export interface DadosPessoa {
 
 // Issue #127 — GET /cep/{cep} na Verde, separado de /pessoa. idBairro/
 // idMunicipio ficam undefined quando a Verde não tem esse dado pro CEP
-// (achado ao vivo 2026-09-21, testado com 2 CEPs reais — só idUf veio).
+// (não é regra geral da API — CEP a CEP, alguns vêm completos, outros não).
+// Issue #176 — campos de TEXTO (uf/bairro/municipio/logradouro) também
+// vêm na resposta quando cadastrados, além dos ids — usado pelo subgrafo
+// coletarEndereco pra não perguntar de novo o que a Verde já sabe.
 export interface DadosCep {
   encontrado: boolean;
   idUf?: number;
   idBairro?: number;
   idMunicipio?: number;
+  uf?: string;
+  bairro?: string;
+  municipio?: string;
+  logradouro?: string;
 }
 
 export interface HorarioUrgencia {
